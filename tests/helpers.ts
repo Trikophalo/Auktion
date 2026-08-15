@@ -13,8 +13,8 @@ export class Harness {
   now = 1_000_000;
   private pendingMs: number | null = null;
 
-  constructor(playerNames: string[], seed = 12345) {
-    this.state = createGame('TEST01', 'one-piece', seed);
+  constructor(playerNames: string[], seed = 12345, themeId = 'one-piece') {
+    this.state = createGame('TEST01', themeId, seed);
     playerNames.forEach((name, i) =>
       this.dispatch({ type: 'PLAYER_JOIN', playerId: `p${i}`, name, avatar: '🏴‍☠️', now: this.now }),
     );

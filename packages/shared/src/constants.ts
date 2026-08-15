@@ -36,6 +36,8 @@ export const RULES = {
 } as const;
 
 /** Bounds for the host-configurable lobby settings. */
+const SETTINGS_BOUNDS_MAX_GENERATION = 7;
+
 export const SETTINGS_BOUNDS = {
   AUCTION_SECONDS_MIN: 60,
   AUCTION_SECONDS_MAX: 300,
@@ -43,12 +45,15 @@ export const SETTINGS_BOUNDS = {
   INJECTION_MAX_MIN: 10 * MILLION,
   INJECTION_MAX_MAX: 100 * MILLION,
   INJECTION_MAX_STEP: 5 * MILLION,
+  GENERATION_MIN: 1,
+  GENERATION_MAX: 7,
 } as const;
 
 export const DEFAULT_SETTINGS: GameSettings = {
   auctionSeconds: 120,
   injectionMax: 50 * MILLION,
   injectionMode: 'random',
+  maxGeneration: SETTINGS_BOUNDS_MAX_GENERATION,
 };
 
 /** Clamps host input so a malformed payload can never break a game. */
@@ -68,7 +73,11 @@ export function normaliseSettings(input: Partial<GameSettings>, base = DEFAULT_S
     ? input.injectionMode
     : base.injectionMode;
 
-  return { auctionSeconds, injectionMax, injectionMode };
+  const maxGeneration = Number.isFinite(input.maxGeneration)
+    ? Math.min(b.GENERATION_MAX, Math.max(b.GENERATION_MIN, Math.round(Number(input.maxGeneration))))
+    : base.maxGeneration;
+
+  return { auctionSeconds, injectionMax, injectionMode, maxGeneration };
 }
 
 /** Every duration the server schedules, in milliseconds. */
@@ -106,6 +115,10 @@ export const TIMINGS = {
   TRADING_MIN_EXTENSION: 12_000,
   /** Final reveal: auto-advance per column if the host does nothing. */
   REVEAL_COLUMN: 8_000,
+  /** Voting for the coolest team closes on its own if someone is idle. */
+  VOTING: 45_000,
+  /** Celebration between the vote result and the final scoreboard. */
+  VOTING_RESULT: 5_000,
 } as const;
 
 /**

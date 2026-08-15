@@ -226,6 +226,18 @@ function handleEvent(event: GameEvent, set: Setter, get: () => GameStore) {
       sfx.reveal();
       break;
 
+    case 'voting:start':
+      sfx.stamp();
+      break;
+
+    case 'voting:cast':
+      sfx.notify();
+      break;
+
+    case 'voting:result':
+      sfx.fanfare();
+      break;
+
     case 'game:over':
       sfx.fanfare();
       break;

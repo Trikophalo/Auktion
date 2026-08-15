@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   RULES,
   TIMINGS,
+  charactersFor,
   createGame,
   getTheme,
+  listThemes,
+  playerCapacity,
   reduce,
   toClientState,
+  validateAllThemes,
   validateTheme,
 } from '@gla/shared/server';
 import { Harness, drive, playFullGame } from './helpers.js';
@@ -13,8 +17,16 @@ import { Harness, drive, playFullGame } from './helpers.js';
 const CATEGORIES = 10;
 
 describe('theme data', () => {
-  it('passes boot validation', () => {
+  it('passes boot validation for every registered theme', () => {
+    expect(() => validateAllThemes()).not.toThrow();
     expect(() => validateTheme(getTheme('one-piece'))).not.toThrow();
+    expect(() => validateTheme(getTheme('pokemon'))).not.toThrow();
+  });
+
+  it('offers both themes to the home screen', () => {
+    const ids = listThemes().map((t) => t.id);
+    expect(ids).toContain('one-piece');
+    expect(ids).toContain('pokemon');
   });
 
   it('has enough characters in every category and no duplicates', () => {
@@ -750,5 +762,160 @@ describe('state hygiene', () => {
     h.dispatch({ type: 'PLAYER_LEAVE', playerId: 'p1', now: h.now });
     expect(h.state.players.length).toBe(2);
     expect(h.player('p1').connected).toBe(false);
+  });
+});
+
+
+describe('pokemon theme', () => {
+  const theme = getTheme('pokemon');
+
+  it('keeps every Pokémon in exactly one category', () => {
+    const seen = new Set<string>();
+    for (const c of theme.characters) {
+      expect(seen.has(c.id)).toBe(false);
+      seen.add(c.id);
+    }
+  });
+
+  it('tags every entry with a generation inside the supported range', () => {
+    for (const c of theme.characters) {
+      expect(c.generation).toBeGreaterThanOrEqual(1);
+      expect(c.generation).toBeLessThanOrEqual(theme.generations!.max);
+    }
+  });
+
+  it('holds only mega forms in the mega category', () => {
+    const megas = theme.characters.filter((c) => c.category === 'mega');
+    expect(megas.length).toBeGreaterThan(10);
+    for (const m of megas) expect(m.id).toContain('-mega');
+  });
+
+  it('keeps shiny entries separate from their normal form', () => {
+    const shinies = theme.characters.filter((c) => c.category === 'shiny');
+    for (const s of shinies) {
+      expect(s.id.startsWith('shiny-')).toBe(true);
+      expect(s.image).toContain('/shiny/');
+    }
+    // Charizard exists as a starter AND as a shiny - different ids, no clash.
+    expect(theme.characters.some((c) => c.id === 'charizard')).toBe(true);
+    expect(theme.characters.some((c) => c.id === 'shiny-charizard')).toBe(true);
+  });
+
+  it('narrows the pool as the era filter tightens', () => {
+    const all = charactersFor(theme, 7).length;
+    const early = charactersFor(theme, 3).length;
+    const gen1 = charactersFor(theme, 1).length;
+    expect(gen1).toBeLessThan(early);
+    expect(early).toBeLessThan(all);
+    for (const c of charactersFor(theme, 3)) expect(c.generation).toBeLessThanOrEqual(3);
+  });
+
+  it('reports how many players an era filter can seat', () => {
+    const full = playerCapacity(theme, 7);
+    const narrow = playerCapacity(theme, 1);
+    expect(full.max).toBeGreaterThanOrEqual(RULES.MAX_PLAYERS);
+    expect(narrow.max).toBeLessThan(full.max);
+    expect(narrow.tightest).toBeTruthy();
+  });
+
+  it('only deals characters from the selected generations', () => {
+    const h = new Harness(['A', 'B'], 7, 'pokemon');
+    h.dispatch({ type: 'UPDATE_SETTINGS', playerId: 'p0', settings: { maxGeneration: 2 }, now: h.now });
+    h.start();
+
+    for (const cat of h.state.categoryOrder) {
+      for (const entry of h.state.decks[cat]) {
+        const character = getTheme('pokemon').characters.find((c) => c.id === entry.characterId)!;
+        expect(character.generation).toBeLessThanOrEqual(2);
+      }
+    }
+  });
+
+  it('plays a full game to the end', () => {
+    const h = new Harness(['A', 'B', 'C'], 21, 'pokemon');
+    playFullGame(h);
+    expect(h.state.phase).toBe('game_over');
+    for (const p of h.state.players) {
+      expect(Object.keys(p.roster).length).toBe(CATEGORIES);
+      expect(p.money).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
+describe('coolest team vote', () => {
+  function reachVoting(names = ['A', 'B', 'C']) {
+    const h = new Harness(names, 5);
+    h.start();
+    drive(h, (s) => s.phase === 'voting');
+    return h;
+  }
+
+  it('opens after the last column is revealed', () => {
+    const h = reachVoting();
+    expect(h.state.phase).toBe('voting');
+    expect(h.state.reveal!.revealedColumns).toBe(CATEGORIES);
+    expect(h.state.voting).not.toBeNull();
+  });
+
+  it('refuses a vote for your own team', () => {
+    const h = reachVoting();
+    h.dispatch({ type: 'VOTE', playerId: 'p0', targetId: 'p0', now: h.now });
+    expect(h.state.voting!.votes.p0).toBeUndefined();
+    expect(h.took('error').length).toBeGreaterThan(0);
+  });
+
+  it('records votes and lets a player change their mind', () => {
+    const h = reachVoting();
+    h.dispatch({ type: 'VOTE', playerId: 'p0', targetId: 'p1', now: h.now });
+    expect(h.state.voting!.votes.p0).toBe('p1');
+    h.dispatch({ type: 'VOTE', playerId: 'p0', targetId: 'p2', now: h.now });
+    expect(h.state.voting!.votes.p0).toBe('p2');
+  });
+
+  it('closes immediately once everyone has voted', () => {
+    const h = reachVoting();
+    h.dispatch({ type: 'VOTE', playerId: 'p0', targetId: 'p1', now: h.now });
+    h.dispatch({ type: 'VOTE', playerId: 'p1', targetId: 'p2', now: h.now });
+    expect(h.state.voting!.winnerId).toBeNull();
+
+    h.dispatch({ type: 'VOTE', playerId: 'p2', targetId: 'p1', now: h.now });
+    expect(h.state.voting!.winnerId).toBe('p1');
+    expect(h.state.coolestId).toBe('p1');
+    expect(h.state.voting!.tally.p1).toBe(2);
+  });
+
+  it('breaks a tie instead of stalling', () => {
+    const h = reachVoting(['A', 'B']);
+    // Two players voting for each other is always a 1:1 tie.
+    h.dispatch({ type: 'VOTE', playerId: 'p0', targetId: 'p1', now: h.now });
+    h.dispatch({ type: 'VOTE', playerId: 'p1', targetId: 'p0', now: h.now });
+
+    expect(h.state.voting!.winnerId).toBeTruthy();
+    const result = h.took('voting:result').at(-1);
+    expect(result && result.type === 'voting:result' && result.tiebreak).toBe(true);
+  });
+
+  it('still finishes when nobody votes at all', () => {
+    const h = reachVoting();
+    h.tickUntil((s) => s.phase === 'game_over');
+    expect(h.state.coolestId).toBeTruthy();
+    expect(h.state.winnerId).toBeTruthy();
+  });
+
+  it('keeps the points winner independent of the vote', () => {
+    const h = reachVoting();
+    const totals = h.state.reveal!.totals;
+    const pointsLeader = Object.entries(totals).sort((a, b) => b[1] - a[1])[0][0];
+
+    // Everyone votes for whoever is NOT the points leader.
+    const other = h.state.players.find((p) => p.id !== pointsLeader)!.id;
+    for (const p of h.state.players) {
+      if (p.id !== other) h.dispatch({ type: 'VOTE', playerId: p.id, targetId: other, now: h.now });
+    }
+    h.dispatch({ type: 'VOTE', playerId: other, targetId: pointsLeader, now: h.now });
+    h.tickUntil((s) => s.phase === 'game_over');
+
+    expect(h.state.coolestId).toBe(other);
+    expect(h.state.winnerId).toBe(pointsLeader);
   });
 });

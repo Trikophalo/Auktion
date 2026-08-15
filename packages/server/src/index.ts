@@ -3,15 +3,15 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
-import { RULES, getTheme, validateTheme } from '@gla/shared/server';
+import { RULES, listThemes, playerCapacity, getTheme, validateAllThemes } from '@gla/shared/server';
 import { RoomManager } from './roomManager.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const CLIENT_DIST = join(ROOT, 'packages/client/dist');
 
-// Fail loudly at boot if the theme data is malformed - never mid-game.
-validateTheme(getTheme('one-piece'));
+// Fail loudly at boot if any theme's data is malformed - never mid-game.
+validateAllThemes();
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -85,8 +85,19 @@ io.on('connection', (socket) => {
     socket.join(r.code);
   };
 
-  socket.on('room:create', ({ name, avatar }, ack) => {
-    const r = rooms.create();
+  socket.on('themes:list', (ack) => ack(listThemes()));
+
+  socket.on('room:create', ({ name, avatar, themeId }, ack) => {
+    let theme = 'one-piece';
+    try {
+      if (themeId) {
+        getTheme(themeId);
+        theme = themeId;
+      }
+    } catch {
+      return ack({ ok: false, error: 'Dieses Thema gibt es nicht.' });
+    }
+    const r = rooms.create(theme);
     const playerId = `p_${Math.random().toString(36).slice(2, 10)}`;
     r.dispatch({ type: 'PLAYER_JOIN', playerId, name: sanitize(name), avatar, now: Date.now() });
     attach(r, playerId);
@@ -101,6 +112,10 @@ io.on('connection', (socket) => {
     if (!r) return ack({ ok: false, error: 'Diesen Raum gibt es nicht.' });
     if (r.state.phase !== 'lobby') return ack({ ok: false, error: 'Das Spiel läuft bereits.' });
     if (r.state.players.length >= RULES.MAX_PLAYERS) return ack({ ok: false, error: 'Der Raum ist voll.' });
+    const capacity = playerCapacity(getTheme(r.state.themeId), r.state.settings.maxGeneration).max;
+    if (r.state.players.length >= capacity) {
+      return ack({ ok: false, error: 'Der Raum ist mit den gewählten Generationen voll.' });
+    }
 
     const playerId = `p_${Math.random().toString(36).slice(2, 10)}`;
     r.dispatch({ type: 'PLAYER_JOIN', playerId, name: sanitize(name), avatar, now: Date.now() });
@@ -187,6 +202,10 @@ io.on('connection', (socket) => {
 
   socket.on('reveal:advance', () =>
     withPlayer((r, playerId) => r.dispatch({ type: 'REVEAL_ADVANCE', playerId, now: Date.now() })),
+  );
+
+  socket.on('vote:cast', ({ targetId }) =>
+    withPlayer((r, playerId) => r.dispatch({ type: 'VOTE', playerId, targetId, now: Date.now() })),
   );
 
   socket.on('room:leave', () => {

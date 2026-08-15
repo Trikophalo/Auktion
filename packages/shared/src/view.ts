@@ -69,11 +69,14 @@ export interface ClientState {
     /** Scores of already-revealed columns only (so a rejoin mid-reveal works). */
     scores: Record<CharacterId, number>;
   } | null;
+  /** Votes are public as they come in; the result lands with the tally. */
+  voting: { votes: Record<string, string>; winnerId: string | null; tally: Record<string, number> } | null;
   chat: ChatMessage[];
   recap: GameState['recap'];
   lastInjection: GameState['lastInjection'];
   deadline: number | null;
   winnerId: string | null;
+  coolestId: string | null;
   /** Server clock, so clients can render countdowns without drift. */
   serverNow: number;
 }
@@ -82,8 +85,10 @@ export interface ThemeInfo {
   id: string;
   title: string;
   tagline: string;
+  icon: string;
   currency: { symbol: string; name: string };
   categories: CategoryDef[];
+  generations?: { max: number; label: string };
 }
 
 /** Sent once per session: theme chrome plus the score-free character catalog. */
@@ -93,8 +98,10 @@ export function themeInfo(themeId: string): ThemeInfo {
     id: theme.id,
     title: theme.title,
     tagline: theme.tagline,
+    icon: theme.icon,
     currency: theme.currency,
     categories: theme.categories,
+    generations: theme.generations,
   };
 }
 
@@ -155,11 +162,13 @@ export function toClientState(state: GameState, playerId: string, now: number): 
     forced: state.forced,
     trading: state.trading,
     reveal: state.reveal ? { ...state.reveal, scores } : null,
+    voting: state.voting,
     chat: state.chat,
     recap: state.recap,
     lastInjection: state.lastInjection,
     deadline: state.deadline,
     winnerId: state.winnerId,
+    coolestId: state.coolestId,
     serverNow: now,
   };
 }

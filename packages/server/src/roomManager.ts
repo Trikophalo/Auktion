@@ -12,10 +12,10 @@ export class RoomManager {
     setInterval(() => this.sweep(), 60_000).unref?.();
   }
 
-  create(): GameRoom {
+  create(themeId = 'one-piece'): GameRoom {
     let code = this.generateCode();
     while (this.rooms.has(code)) code = this.generateCode();
-    const room = new GameRoom(code, this.io);
+    const room = new GameRoom(code, this.io, themeId);
     this.rooms.set(code, room);
     return room;
   }

@@ -1,7 +1,7 @@
 import type { DeckEntry, GameState, Player, ThemePack } from '../types.js';
 import { DEFAULT_SETTINGS, RULES } from '../constants.js';
 import { createRng, shuffle, randomSeed } from '../rng.js';
-import { getTheme, validateTheme } from '../theme/index.js';
+import { charactersFor, getTheme, validateTheme } from '../theme/index.js';
 
 export const AVATARS = ['🏴‍☠️', '🐒', '🦊', '🐧', '🦁', '🐙', '🦈', '🐲', '🦅', '🐺', '🦝', '🐯'];
 
@@ -24,6 +24,7 @@ export function createGame(roomCode: string, themeId = 'one-piece', seed = rando
     forced: null,
     trading: null,
     reveal: null,
+    voting: null,
     chat: [],
     consecutivePasses: 0,
     recap: [],
@@ -34,6 +35,7 @@ export function createGame(roomCode: string, themeId = 'one-piece', seed = rando
     startedAt: null,
     endedAt: null,
     winnerId: null,
+    coolestId: null,
   };
 }
 
@@ -76,9 +78,12 @@ export function buildBoard(state: GameState): GameState {
     ? [theme.openingCategory, ...shuffledRest]
     : shuffledRest;
 
+  // The host's era filter narrows the pool before anything is drawn.
+  const available = charactersFor(theme, state.settings.maxGeneration);
+
   const decks: Record<string, DeckEntry[]> = {};
   for (const categoryId of categoryOrder) {
-    const pool = theme.characters.filter((c) => c.category === categoryId);
+    const pool = available.filter((c) => c.category === categoryId);
     const [shuffled, nextRng] = shuffle(pool, rng);
     rng = nextRng;
     decks[categoryId] = shuffled.slice(0, playerCount).map((c) => ({

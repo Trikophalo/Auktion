@@ -5,6 +5,7 @@ import { unlockAudio } from './store/sound';
 import { Lobby } from './screens/Lobby';
 import { Game } from './screens/Game';
 import { Reveal } from './screens/Reveal';
+import { Voting } from './screens/Voting';
 import { Toasts } from './components/Toasts';
 import { Stinger } from './components/Stinger';
 
@@ -25,6 +26,7 @@ export function App() {
 
   const phase = state?.phase;
   const inReveal = phase === 'final_reveal' || phase === 'game_over';
+  const inVoting = phase === 'voting';
 
   return (
     <div className="app">
@@ -34,6 +36,8 @@ export function App() {
       <AnimatePresence mode="wait">
         {!state || phase === 'lobby' ? (
           <Lobby key="lobby" />
+        ) : inVoting ? (
+          <Voting key="voting" />
         ) : inReveal ? (
           <Reveal key="reveal" />
         ) : (

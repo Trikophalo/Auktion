@@ -27,6 +27,8 @@ export interface CharacterPublic {
   category: CategoryId;
   /** Base starting bid before any decay. */
   startingBid: number;
+  /** Set by themes that can be filtered by era (Pokémon generations). */
+  generation?: number;
   flavor: string;
   /** Optional real artwork. When absent (or when loading fails) the client
    *  renders procedural art, so the game never looks broken. */
@@ -42,11 +44,19 @@ export interface ThemePack {
   id: string;
   title: string;
   tagline: string;
+  /** Shown on the home screen theme picker. */
+  blurb: string;
+  icon: string;
   currency: { symbol: string; name: string };
   categories: CategoryDef[];
   characters: CharacterDef[];
   /** Category that always opens the game (best hook). Optional. */
   openingCategory?: CategoryId;
+  /**
+   * Themes whose characters carry a `generation` can be narrowed to
+   * "everything up to generation N" in the lobby.
+   */
+  generations?: { max: number; label: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +72,11 @@ export interface GameSettings {
   injectionMax: number;
   /** random = each player rolls up to the max, fixed = everyone gets the max. */
   injectionMode: InjectionMode;
+  /**
+   * For themes with eras: play with everything up to this generation.
+   * Ignored by themes that do not declare generation support.
+   */
+  maxGeneration: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +96,8 @@ export type Phase =
   | 'category_end'
   | 'trading'
   | 'final_reveal'
+  /** Everyone votes for the coolest opponent team. */
+  | 'voting'
   | 'game_over';
 
 export interface OwnedCharacter {
@@ -186,6 +203,15 @@ export interface RevealState {
   finished: boolean;
 }
 
+export interface VotingState {
+  /** voterId -> the player they think built the coolest team. */
+  votes: Record<string, string>;
+  /** Winner of the vote, once it closes. Tie broken by the seeded RNG. */
+  winnerId: string | null;
+  /** Final tally, filled in when the vote closes. */
+  tally: Record<string, number>;
+}
+
 export interface CategoryRecapEntry {
   playerId: string;
   characterId: CharacterId;
@@ -221,6 +247,7 @@ export interface GameState {
   forced: ForcedAllocationState | null;
   trading: TradingState | null;
   reveal: RevealState | null;
+  voting: VotingState | null;
   chat: ChatMessage[];
   /** Consecutive auctions in this category that nobody bid on. */
   consecutivePasses: number;
@@ -236,7 +263,10 @@ export interface GameState {
   version: number;
   startedAt: number | null;
   endedAt: number | null;
+  /** Winner on hidden points. */
   winnerId: string | null;
+  /** Winner of the "coolest team" vote. */
+  coolestId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +289,7 @@ export type Action =
   | { type: 'TRADE_RESPOND'; playerId: string; offerId: string; response: 'accept' | 'reject' | 'cancel'; now: number }
   | { type: 'TRADE_READY'; playerId: string; now: number }
   | { type: 'REVEAL_ADVANCE'; playerId: string; now: number }
+  | { type: 'VOTE'; playerId: string; targetId: string; now: number }
   /** Fired by the room when the scheduled phase timer expires. */
   | { type: 'TICK'; now: number };
 
@@ -287,6 +318,9 @@ export type GameEvent =
   | { type: 'settings:update'; settings: GameSettings }
   | { type: 'reveal:start' }
   | { type: 'reveal:column'; columnIndex: number; categoryId: CategoryId; cells: { playerId: string; characterId: CharacterId; score: number; pricePaid: number }[]; totals: Record<string, number> }
+  | { type: 'voting:start'; endsAt: number }
+  | { type: 'voting:cast'; playerId: string; votesIn: number; needed: number }
+  | { type: 'voting:result'; coolestId: string; tally: Record<string, number>; tiebreak: boolean }
   | { type: 'game:over'; winnerId: string; totals: Record<string, number>; awards: Award[] }
   | { type: 'error'; playerId: string; message: string };
 

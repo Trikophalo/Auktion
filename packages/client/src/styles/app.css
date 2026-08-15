@@ -1403,3 +1403,134 @@ button { font-family: inherit; }
   .bidbar { padding-bottom: 56px; }
   .toasts { bottom: 150px; }
 }
+
+/* ----------------------------------------------------- theme (genre) picker */
+
+.theme-picker { display: flex; flex-direction: column; gap: 8px; }
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, transform 0.12s;
+}
+
+.theme-option:hover { transform: translateY(-2px); background: rgba(255, 255, 255, 0.1); }
+.theme-option.selected { border-color: var(--gold); background: rgba(244, 185, 66, 0.16); }
+
+.theme-icon { font-size: 26px; }
+.theme-body { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.theme-title { font-weight: 900; font-size: 15px; }
+.theme-blurb { font-size: 11.5px; color: var(--ink-dim); }
+
+.theme-count {
+  font-family: var(--display);
+  font-size: 13px;
+  color: var(--gold);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.setting-hint.warn { color: #ffb3b8; font-weight: 800; }
+
+/* ------------------------------------------------------------------ voting */
+
+.voting { align-items: center; padding: 20px; overflow-y: auto; gap: 16px; z-index: 3; }
+
+.voting-head { text-align: center; }
+
+.voting-head h1 {
+  font-family: var(--display);
+  font-size: clamp(24px, 4.5vw, 46px);
+  margin: 0;
+  letter-spacing: 2px;
+  color: var(--gold);
+  text-shadow: 0 5px 0 var(--gold-deep);
+}
+
+.voting-head p { color: var(--ink-dim); margin: 6px 0 0; font-weight: 700; }
+
+.voting-meta { display: flex; gap: 14px; justify-content: center; margin-top: 10px; align-items: center; }
+.vote-timer { font-family: var(--display); font-size: 24px; color: var(--red); }
+.vote-count { font-size: 13px; color: var(--ink-dim); font-weight: 800; }
+
+.vote-winner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 26px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--gold-deep), var(--gold));
+  color: #2a1a02;
+  box-shadow: 0 16px 50px rgba(244, 185, 66, 0.45);
+}
+
+.vw-crown { font-size: 30px; }
+.vw-name { font-family: var(--display); font-size: 24px; }
+.vw-votes { font-family: var(--display); font-size: 18px; }
+
+.vote-teams {
+  width: min(1100px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vote-team {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: rgba(9, 19, 36, 0.85);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+
+.vote-team:disabled { cursor: default; }
+.vote-team:hover:not(:disabled) { border-color: rgba(244, 185, 66, 0.6); }
+.vote-team.chosen { border-color: var(--gold); background: rgba(244, 185, 66, 0.12); }
+.vote-team.won { border-color: var(--gold); box-shadow: 0 0 40px rgba(244, 185, 66, 0.35); }
+
+.vt-head { display: flex; align-items: center; gap: 10px; }
+.vt-avatar { font-size: 24px; }
+.vt-name { font-weight: 900; font-size: 16px; flex: 1; }
+
+.vt-badge {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  background: var(--gold);
+  color: #2a1a02;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.vt-tally { font-family: var(--display); font-size: 22px; color: var(--gold); }
+
+.vt-cards { display: flex; gap: 5px; flex-wrap: wrap; }
+
+.vt-card {
+  width: 62px;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.vote-hint { color: var(--ink-dim); font-weight: 700; }
+
+@media (max-width: 860px) {
+  .vt-card { width: 46px; }
+}

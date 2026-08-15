@@ -1,5 +1,6 @@
 import type { CharacterPublic, GameEvent, GameSettings } from './types.js';
 import type { ClientState, ThemeInfo } from './view.js';
+import type { ThemeSummary } from './theme/index.js';
 
 /**
  * Single source of truth for the wire. Both sides import these types, so an
@@ -16,7 +17,9 @@ export interface JoinResult {
 }
 
 export interface ClientToServer {
-  'room:create': (payload: { name: string; avatar: string }, ack: (r: JoinResult) => void) => void;
+  'room:create': (payload: { name: string; avatar: string; themeId?: string }, ack: (r: JoinResult) => void) => void;
+  /** Theme catalogue for the home screen picker. */
+  'themes:list': (ack: (themes: ThemeSummary[]) => void) => void;
   'room:join': (payload: { code: string; name: string; avatar: string }, ack: (r: JoinResult) => void) => void;
   'room:rejoin': (payload: { code: string; token: string }, ack: (r: JoinResult) => void) => void;
   'room:leave': () => void;
@@ -40,6 +43,7 @@ export interface ClientToServer {
   'trade:respond': (payload: { offerId: string; response: 'accept' | 'reject' | 'cancel' }) => void;
   'trade:ready': () => void;
   'reveal:advance': () => void;
+  'vote:cast': (payload: { targetId: string }) => void;
   /** Client noticed a version gap and wants a fresh snapshot. */
   'state:resync': () => void;
 }

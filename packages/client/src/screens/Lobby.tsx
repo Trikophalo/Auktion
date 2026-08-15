@@ -1,11 +1,39 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { RULES, SETTINGS_BOUNDS, money } from '@gla/shared';
 import { useGame } from '../store/game';
-import { net } from '../net/socket';
+import { net, type ThemeSummary } from '../net/socket';
 import { Chat } from '../components/Chat';
 
 const AVATARS = ['🏴‍☠️', '🐒', '🦊', '🐧', '🦁', '🐙', '🦈', '🐲', '🦅', '🐺', '🦝', '🐯'];
+
+/**
+ * How many players the current era filter can seat.
+ *
+ * Every category deals one character per player, so the smallest category after
+ * filtering is the hard ceiling for the table.
+ */
+function useCapacity() {
+  const state = useGame((s) => s.state);
+  const theme = useGame((s) => s.theme);
+  const catalog = useGame((s) => s.characters);
+
+  return useMemo(() => {
+    if (!state || !theme?.generations) return { max: RULES.MAX_PLAYERS, tightest: '' };
+    let max = Infinity;
+    let tightest = '';
+    for (const category of theme.categories) {
+      const size = [...catalog.values()].filter(
+        (c) => c.category === category.id && (c.generation ?? 1) <= state.settings.maxGeneration,
+      ).length;
+      if (size < max) {
+        max = size;
+        tightest = category.id;
+      }
+    }
+    return { max: Number.isFinite(max) ? max : 0, tightest };
+  }, [state?.settings.maxGeneration, theme, catalog]);
+}
 
 export function Lobby() {
   const state = useGame((s) => s.state);
@@ -15,6 +43,14 @@ export function Lobby() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [themes, setThemes] = useState<ThemeSummary[]>([]);
+  const [themeId, setThemeId] = useState(() => localStorage.getItem('gla.theme') ?? 'one-piece');
+
+  useEffect(() => {
+    net.themes().then(setThemes);
+  }, []);
+
+  const capacity = useCapacity();
 
   const remember = () => {
     localStorage.setItem('gla.name', name);
@@ -25,7 +61,8 @@ export function Lobby() {
     if (!name.trim()) return setError('Bitte gib deinen Namen ein.');
     setBusy(true);
     remember();
-    const res = await net.createRoom(name.trim(), avatar);
+    localStorage.setItem('gla.theme', themeId);
+    const res = await net.createRoom(name.trim(), avatar, themeId);
     setBusy(false);
     if (!res.ok) setError(res.error ?? 'Raum konnte nicht erstellt werden.');
   }
@@ -42,7 +79,17 @@ export function Lobby() {
 
   // ------------------------------------------------------------- room view
   if (state && me) {
-    const canStart = me.isHost && state.players.length >= RULES.MIN_PLAYERS;
+    const tooFewPlayers = state.players.length < RULES.MIN_PLAYERS;
+    const tooManyForEra = state.players.length > capacity.max;
+    const canStart = me.isHost && !tooFewPlayers && !tooManyForEra;
+
+    // Say what actually blocks the start - "zu wenige Spieler" would be a lie
+    // when the real problem is that the era filter cannot seat the table.
+    const startLabel = tooFewPlayers
+      ? `Mindestens ${RULES.MIN_PLAYERS} Spieler`
+      : tooManyForEra
+        ? `Zu wenige Charaktere für ${state.players.length} Spieler`
+        : '⚔️ Spiel starten';
     const link = `${location.origin}/?room=${state.roomCode}`;
 
     return (
@@ -86,7 +133,7 @@ export function Lobby() {
             ))}
           </div>
 
-          <RoomSettings canEdit={me.isHost} />
+          <RoomSettings canEdit={me.isHost} capacity={capacity} />
 
           <Chat variant="panel" />
 
@@ -104,8 +151,8 @@ export function Lobby() {
 
           <div className="lobby-actions">
             {me.isHost ? (
-              <button className="btn primary big" disabled={!canStart} onClick={() => net.start()}>
-                {canStart ? '⚔️ Spiel starten' : `Mindestens ${RULES.MIN_PLAYERS} Spieler`}
+              <button className="btn primary big start-game" disabled={!canStart} onClick={() => net.start()}>
+                {startLabel}
               </button>
             ) : (
               <button className={`btn big ${me.ready ? 'ok' : 'primary'}`} onClick={() => net.ready(!me.ready)}>
@@ -140,14 +187,36 @@ export function Lobby() {
         transition={{ type: 'spring', stiffness: 200, damping: 20 }}
       >
         <h1 className="game-title">
-          GRAND LINE <span>AUCTION</span>
+          AUKTIONS <span>ARENA</span>
         </h1>
-        <p className="tagline">Ersteigere die stärkste Crew der Welt.</p>
+        <p className="tagline">Ersteigere das stärkste Team - Genre frei wählbar.</p>
       </motion.div>
 
       <div className="lobby-card">
+        {themes.length > 1 && (
+          <div className="field">
+            <span>Genre</span>
+            <div className="theme-picker">
+              {themes.map((t) => (
+                <button
+                  key={t.id}
+                  className={`theme-option ${t.id === themeId ? 'selected' : ''}`}
+                  onClick={() => setThemeId(t.id)}
+                >
+                  <span className="theme-icon">{t.icon}</span>
+                  <span className="theme-body">
+                    <span className="theme-title">{t.title}</span>
+                    <span className="theme-blurb">{t.blurb}</span>
+                  </span>
+                  <span className="theme-count">{t.characterCount}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <label className="field">
-          <span>Dein Piratenname</span>
+          <span>Dein Name</span>
           <input
             value={name}
             maxLength={16}
@@ -198,9 +267,20 @@ export function Lobby() {
  * Host-configurable room settings. Everyone sees the current values live; only
  * the host can change them, so nobody is surprised by the rules mid-game.
  */
-function RoomSettings({ canEdit }: { canEdit: boolean }) {
-  const settings = useGame((s) => s.state!.settings);
+function RoomSettings({
+  canEdit,
+  capacity,
+}: {
+  canEdit: boolean;
+  capacity: { max: number; tightest: string };
+}) {
+  const state = useGame((s) => s.state)!;
+  const theme = useGame((s) => s.theme);
+  const settings = state.settings;
+  const players = state.players.length;
   const b = SETTINGS_BOUNDS;
+
+  const capacityLabel = theme?.categories.find((c) => c.id === capacity.tightest)?.title ?? '';
 
   const minutes = (settings.auctionSeconds / 60).toFixed(settings.auctionSeconds % 60 === 0 ? 0 : 1);
 
@@ -226,6 +306,29 @@ function RoomSettings({ canEdit }: { canEdit: boolean }) {
           Läuft die Zeit ab, gewinnt das Höchstgebot. Alle können gemeinsam „Zeit überspringen“ drücken.
         </span>
       </label>
+
+      {theme?.generations && (
+        <label className="setting">
+          <span className="setting-head">
+            Generationen
+            <b>Gen 1-{settings.maxGeneration}</b>
+          </span>
+          <input
+            type="range"
+            min={1}
+            max={theme.generations.max}
+            step={1}
+            value={settings.maxGeneration}
+            disabled={!canEdit}
+            onChange={(e) => net.settings({ maxGeneration: Number(e.target.value) })}
+          />
+          <span className={`setting-hint ${capacity.max < players ? 'warn' : ''}`}>
+            {capacity.max < players
+              ? `⚠ Reicht nur für ${capacity.max} Spieler - die Kategorie „${capacityLabel}“ hat zu wenige Pokémon. Mehr Generationen zulassen oder Spieler entfernen.`
+              : `Reicht für bis zu ${capacity.max} Spieler (knappste Kategorie: „${capacityLabel}“).`}
+          </span>
+        </label>
+      )}
 
       <label className="setting">
         <span className="setting-head">

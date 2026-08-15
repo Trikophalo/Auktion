@@ -14,8 +14,8 @@ import {
   TIMINGS,
   normaliseSettings,
 } from '../constants.js';
-import { nextInt } from '../rng.js';
-import { toPublic } from '../theme/index.js';
+import { nextInt, pick } from '../rng.js';
+import { getTheme, playerCapacity, toPublic } from '../theme/index.js';
 import { applyInjection, computeAwards, computeTotals, partialTotals } from './economy.js';
 import {
   bump,
@@ -436,7 +436,7 @@ function revealNextColumn(state: GameState, now: number): Flow {
   const reveal = state.reveal!;
   const columnIndex = reveal.revealedColumns;
 
-  if (columnIndex >= state.categoryOrder.length) return finishGame(state, now);
+  if (columnIndex >= state.categoryOrder.length) return startVoting(state, now);
 
   const categoryId = state.categoryOrder[columnIndex];
   const cells = state.players.map((p) => {
@@ -455,11 +455,70 @@ function revealNextColumn(state: GameState, now: number): Flow {
     reveal: { ...reveal, revealedColumns: columnIndex + 1, totals },
   };
 
-  const { state: s1, timer } = schedule(s0, now, TIMINGS.REVEAL_COLUMN);
+  // After the last column the vote opens rather than the scoreboard.
+  const isLast = columnIndex + 1 >= state.categoryOrder.length;
+  const { state: s1, timer } = schedule(s0, now, isLast ? TIMINGS.REVEAL_COLUMN : TIMINGS.REVEAL_COLUMN);
+  void isLast;
 
   return {
     state: s1,
     events: [{ type: 'reveal:column', columnIndex, categoryId, cells, totals }],
+    timer,
+  };
+}
+
+/**
+ * After the points are known, the table votes on the coolest team. You cannot
+ * vote for yourself, so with two players it is simply "the other one" - the
+ * vote still runs, it just cannot be a contest.
+ */
+function startVoting(state: GameState, now: number): Flow {
+  const s0: GameState = {
+    ...state,
+    phase: 'voting',
+    voting: { votes: {}, winnerId: null, tally: {} },
+  };
+  const { state: s1, timer } = schedule(s0, now, TIMINGS.VOTING);
+  return { state: s1, events: [{ type: 'voting:start', endsAt: now + TIMINGS.VOTING }], timer };
+}
+
+/** Closes the vote: highest tally wins, a tie is broken by the seeded RNG. */
+function closeVoting(state: GameState, now: number): Flow {
+  const voting = state.voting ?? { votes: {}, winnerId: null, tally: {} };
+
+  const tally: Record<string, number> = {};
+  for (const player of state.players) tally[player.id] = 0;
+  for (const targetId of Object.values(voting.votes)) {
+    if (tally[targetId] !== undefined) tally[targetId] += 1;
+  }
+
+  const best = Math.max(...Object.values(tally));
+  const leaders = Object.keys(tally).filter((id) => tally[id] === best);
+
+  let rng = state.rng;
+  let coolestId = leaders[0];
+  const tiebreak = leaders.length > 1;
+  if (tiebreak) {
+    const [chosen, nextRng] = pick(leaders, rng);
+    coolestId = chosen;
+    rng = nextRng;
+  }
+
+  const winner = playerOf(state, coolestId);
+  const chat = withSystemChat(
+    { ...state, rng, coolestId, voting: { ...voting, winnerId: coolestId, tally } },
+    tiebreak
+      ? `Gleichstand beim Voting - das Los entscheidet: ${winner?.name} hat das coolste Team!`
+      : `${winner?.name} hat das coolste Team!`,
+    now,
+  );
+
+  const s0: GameState = { ...chat.state, phase: 'voting' };
+  const { state: s1, timer } = schedule(s0, now, TIMINGS.VOTING_RESULT);
+
+  return {
+    state: s1,
+    events: [{ type: 'voting:result', coolestId, tally, tiebreak }, chat.event],
     timer,
   };
 }
@@ -854,6 +913,35 @@ function handle(state: GameState, action: Action): ReduceResult {
       return revealNextColumn(state, action.now);
     }
 
+    case 'VOTE': {
+      if (state.phase !== 'voting' || !state.voting) {
+        return fail(state, action.playerId, 'Gerade läuft keine Abstimmung.');
+      }
+      if (state.voting.winnerId) return { state, events: NO_EVENTS, timer: null };
+      if (action.playerId === action.targetId) {
+        return fail(state, action.playerId, 'Für das eigene Team kannst du nicht stimmen.');
+      }
+      if (!playerOf(state, action.playerId) || !playerOf(state, action.targetId)) {
+        return fail(state, action.playerId, 'Spieler nicht gefunden.');
+      }
+
+      const votes = { ...state.voting.votes, [action.playerId]: action.targetId };
+      const s0: GameState = { ...state, voting: { ...state.voting, votes } };
+
+      const voters = s0.players.filter((p) => p.connected);
+      const events: GameEvent[] = [
+        { type: 'voting:cast', playerId: action.playerId, votesIn: Object.keys(votes).length, needed: voters.length },
+      ];
+
+      // Everyone has voted - no reason to run out the clock.
+      if (voters.every((p) => votes[p.id])) {
+        const closed = closeVoting(s0, action.now);
+        return { ...closed, events: [...events, ...closed.events] };
+      }
+
+      return { state: s0, events, timer: null };
+    }
+
     // ----------------------------------------------------------------- tick
     case 'TICK':
       return tick(state, action.now);
@@ -892,6 +980,10 @@ function tick(state: GameState, now: number): ReduceResult {
 
     case 'final_reveal':
       return revealNextColumn(state, now);
+
+    case 'voting':
+      // First tick closes the vote, the second ends the game after the result.
+      return state.voting?.winnerId ? finishGame(state, now) : closeVoting(state, now);
 
     default:
       return { state, events: NO_EVENTS, timer: null };

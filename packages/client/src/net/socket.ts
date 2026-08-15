@@ -1,5 +1,15 @@
 import { io, type Socket } from 'socket.io-client';
 import type { CharacterPublic, ClientState, GameEvent, GameSettings, JoinResult, ThemeInfo } from '@gla/shared';
+
+export interface ThemeSummary {
+  id: string;
+  title: string;
+  tagline: string;
+  blurb: string;
+  icon: string;
+  characterCount: number;
+  generations?: { max: number; label: string };
+}
 import { useGame } from '../store/game';
 
 let socket: Socket | null = null;
@@ -66,9 +76,13 @@ function sock(): Socket {
 }
 
 export const net = {
-  createRoom(name: string, avatar: string): Promise<JoinResult> {
+  themes(): Promise<ThemeSummary[]> {
+    return new Promise((resolve) => sock().emit('themes:list', resolve));
+  },
+
+  createRoom(name: string, avatar: string, themeId: string): Promise<JoinResult> {
     return new Promise((resolve) => {
-      sock().emit('room:create', { name, avatar }, (res: JoinResult) => {
+      sock().emit('room:create', { name, avatar, themeId }, (res: JoinResult) => {
         if (res.ok && res.token && res.roomCode) saveSeat({ code: res.roomCode, token: res.token });
         resolve(res);
       });
@@ -108,5 +122,6 @@ export const net = {
     sock().emit('trade:respond', { offerId, response }),
   tradeReady: () => sock().emit('trade:ready'),
   revealAdvance: () => sock().emit('reveal:advance'),
+  vote: (targetId: string) => sock().emit('vote:cast', { targetId }),
   resync: () => sock().emit('state:resync'),
 };
