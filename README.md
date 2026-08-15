@@ -14,6 +14,26 @@ npm run dev      # server on :3000, client on :5173 (hot reload)
 npm run build && npm start   # everything on http://localhost:3000
 ```
 
+## Deploy for free (Render)
+
+The server keeps game state (rooms, timers, WebSocket connections) in memory, so it needs
+a persistent Node process — not a serverless platform like Vercel. Render's free web
+service tier fits without any code changes.
+
+**One-click:** open [render.com/deploy](https://render.com/deploy?repo=https://github.com/Trikophalo/Auktion)
+and point it at this repo — `render.yaml` in the repo root configures everything.
+
+**Manual:**
+1. [render.com](https://render.com) → New → Web Service → connect this GitHub repo.
+2. Branch: `claude/one-piece-auction-game-plan-8wpcia`
+3. Build command: `npm install && npm run build`
+4. Start command: `npm start`
+5. Plan: **Free**
+
+Render gives you a permanent `https://<name>.onrender.com` URL to share. Free-tier caveat:
+the service sleeps after 15 minutes with no traffic and takes ~30-50s to wake up on the
+next visit — fine for occasional game nights, not for an always-on server.
+
 Open the URL, create a room, share the 6-character code (or the invite link) with 1–5
 friends, and start.
 

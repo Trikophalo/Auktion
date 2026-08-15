@@ -1,0 +1,22 @@
+# Render Blueprint — deploys Grand Line Auction as a single free web service.
+#
+# One command builds the client and starts the combined server (client static
+# files + the Socket.IO game server) in one process, on one free instance.
+#
+# Deploy: https://render.com/deploy?repo=https://github.com/Trikophalo/Auktion
+# or: Render Dashboard → New → Blueprint → point at this repo.
+
+services:
+  - type: web
+    name: grand-line-auction
+    runtime: node
+    plan: free
+    branch: claude/one-piece-auction-game-plan-8wpcia
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22
