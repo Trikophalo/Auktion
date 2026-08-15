@@ -569,8 +569,8 @@ button { font-family: inherit; }
   text-shadow: 0 3px 0 var(--gold-deep), 0 8px 24px rgba(244, 185, 66, 0.35);
 }
 
-.discount { font-size: 11px; color: var(--teal); font-weight: 700; }
-.discount s { color: var(--ink-dim); }
+.returning { font-size: 11px; color: var(--ink-dim); font-weight: 700; }
+.forced-price { color: var(--gold); font-family: var(--display); }
 
 .portrait-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 

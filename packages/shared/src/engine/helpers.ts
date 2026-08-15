@@ -64,13 +64,6 @@ export function minNextBid(state: GameState): number {
   return auction.currentBid === 0 ? auction.startingBid : auction.currentBid + RULES.BID_STEP;
 }
 
-/** A character nobody wanted gets cheaper - this is what breaks stalemates. */
-export function decayedBid(startingBid: number): number {
-  const decayed = startingBid * RULES.DECAY_FACTOR;
-  const snapped = Math.floor(decayed / RULES.BID_STEP) * RULES.BID_STEP;
-  return Math.max(RULES.DECAY_FLOOR, snapped);
-}
-
 export function isTradingDue(categoryIndex: number): boolean {
   return (RULES.TRADING_AFTER_CATEGORY_INDEX as readonly number[]).includes(categoryIndex);
 }

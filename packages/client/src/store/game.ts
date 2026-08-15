@@ -177,7 +177,7 @@ function handleEvent(event: GameEvent, set: Setter, get: () => GameStore) {
       showStinger(set, {
         kind: 'passed',
         title: 'NIEMAND WILL IHN',
-        detail: `${charName(event.characterId)} kommt später günstiger zurück`,
+        detail: `${charName(event.characterId)} kommt später noch einmal dran`,
       }, 2200);
       break;
 

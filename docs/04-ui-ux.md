@@ -76,7 +76,7 @@ Host paces with "Weiter" (auto-advance after 8s so nobody is hostage).
 | Soft timer | Thin ring drains around portrait | SVG stroke-dashoffset |
 | Countdown 5→0 | Full-stage number slams, heartbeat, vignette pulse, slight zoom on portrait | Framer + CSS filter |
 | Sold | Hammer slam, white flash, card shrinks & flies along a curve into the winner's cell, cell lands with bounce; balance counts down | Framer `layoutId` flight + counter tween |
-| All skipped | Card grays out, spins away back into a deck stack ("Kommt später wieder…" + decayed price tag) | Framer presence |
+| All skipped | Card grays out and spins back onto the deck stack ("Kommt später noch einmal dran") | Framer presence |
 | Injection | Coin burst per HUD, "+35.000.000" floats up, balance counts up | particles + tween |
 | Trade done | Two cards cross mid-air + coin arc | Framer flight |
 | Last Pick | Spotlight dims board, 3 cards fan out, picked card enlarges | presence + stagger |

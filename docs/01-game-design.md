@@ -68,8 +68,8 @@ per player, waiting also means being handed whatever nobody else wanted (see §5
 
 ### 3.3 Bids
 
-- Opening bid = the character's **current starting bid** (40M–150M base, possibly decayed
-  — see §4). The first bid must be ≥ the starting bid.
+- Opening bid = the character's **starting bid** (40M–150M). It never changes, however
+  often the character has been passed over (§4). The first bid must be ≥ that price.
 - Every subsequent bid must be **≥ current bid + 5M** and a **multiple of 5M**.
 - A bid can never exceed the bidder's current balance. Bids are **binding**: the current
   high bidder cannot skip or retract (the UI hides SKIP while you lead).
@@ -123,20 +123,19 @@ agreed on has changed.
 
 ---
 
-## 4. Skipped characters: cycling + price decay
+## 4. Skipped characters: cycling at a fixed price
 
 Requirement: skipped characters are **not** removed; they must be able to reappear.
 
-- A character skipped by all eligible players is re-inserted into the remaining deck at a
-  **random position** (not next — reappearance should surprise).
-- Each time a character cycles back this way, its starting bid **decays by 25%** (rounded
-  down to a 5M step, floor **10M**). The UI shows the decayed price with a struck-through
-  original ("~~140M~~ → 105M") — bargain-hunting is a visible, exciting mechanic.
+- A character passed by every eligible player goes to the **back of the queue** and the
+  next character comes up immediately.
+- The price **never changes**. A character is never sold below its starting bid, so
+  waiting someone out costs time, not money, and there is no reward for stalling.
 
-Why decay (design improvement over the raw spec): without it, a category where everyone
-is cash-poor can cycle forever. Decay guarantees prices eventually reach a level someone
-will pay — and creates the fun "wait for the discount, but risk someone sniping it"
-tension the game wants (§15 of the brief).
+Because prices are static, a category that runs a **full cycle without a single bid**
+cannot improve: the same characters would return at the same prices to the same wallets.
+That is provable stasis, and it is exactly what triggers the allocation in §5.3 — one
+cycle, not an endless loop.
 
 ---
 
@@ -165,15 +164,18 @@ It plays as a short ceremony ("LETZTER CHARAKTER DER KATEGORIE" → card → arr
 price), not a dialog. Being the one who has to take the leftovers is a visible, slightly
 embarrassing outcome — exactly the tone the game wants.
 
-### 5.3 Forced allocation (deadlock backstop)
-If ≥ 2 eligible players remain and a **full deck cycle** passes in which every character
-was skipped by everyone (tracked as consecutive all-skips ≥ remaining deck size), the
-category enters **Zwangszuteilung**: each remaining eligible player is dealt a random
-remaining character **for free**, one by one with a slot-machine animation, and the
-category ends. With price decay in place this should virtually never fire (a free-ish
-character with a hidden score is always +EV), but it makes deadlock *impossible* rather
-than *unlikely*. It is also a hard timeout against griefing (a player who refuses to act
-is treated as skipping — see §10).
+### 5.3 Allocation after a dead cycle
+If ≥ 2 eligible players remain and a **full deck cycle** passes without a single bid, the
+category enters **Zwangszuteilung**: each remaining player is dealt a random remaining
+character at `min(startingBid, balance)` — the same deal as the hand-over in §5.2, so a
+broke player still pays nothing.
+
+Charging the minimum price matters: dealing these for free would hand the table an
+exploit, where everyone agrees to pass on everything and collects a whole category for
+nothing. At the asking price, colluding gains you only the skipped bidding war.
+
+Simulation puts this at roughly **10% of categories** with cautious bots — it is a normal
+outcome ("nobody wanted to bid above the asking price"), not an emergency brake.
 
 ### 5.4 Why a player can never be priced out forever
 - Decay floors at 10M; injections give 10–50M per category; Last Pick and forced
@@ -210,7 +212,7 @@ Budget math for tuning (P players):
   → sustainable average price **~127M**.
 - Starting bids range 40M–150M. Contested stars will go for 200M–350M in bidding wars;
   the economy balances because late-category auctions (fewer eligible bidders) and
-  decayed re-runs sell at 10M–60M.
+  re-runs of an unwanted character sell at their unchanged base price.
 - **Intended tension:** a player who blows 400M+ on two early stars *will* be visibly
   poor in mid-game, must hunt bargains and lean on injections/trades — painful but never
   hopeless (§5.4). That regret arc is a feature (brief §15, §20).
@@ -218,7 +220,7 @@ Budget math for tuning (P players):
 Balancing plan (implementation phase): a **headless simulation harness** runs thousands
 of games with bot strategies (aggressive / balanced / bargain-hunter / troll-skipper) and
 reports price curves, bankruptcy rates, score spreads, and how often Last Pick / forced
-allocation trigger. Starting bids, decay rate, and injection range are tuned against it.
+allocation trigger. Starting bids and the injection range are tuned against it.
 Target: forced allocation < 0.1% of categories; median end-game leftover cash 50–200M
 (leftover cash is worth nothing — announced up front so hoarding is a real mistake).
 
@@ -313,10 +315,10 @@ log that survives a reconnect.
 | --- | --- | --- |
 | 1 | Two bids arrive "simultaneously" | Server serializes per room; first accepted wins, second is validated against the *new* state and usually rejected ("Überboten!") with one-tap re-raise. Quick-bids are relative, so they almost never reject. |
 | 2 | Bid arrives during the final countdown | Accepted, and it resets the clock to 10s (§3.4). Bidding is never disabled while the auction is open; only the server's expiry tick closes it. |
-| 3 | All eligible players skip, no bid | Instant resolve; character back into deck at random position, price −25% (floor 10M). |
+| 3 | All eligible players skip, no bid | Instant resolve; the character goes to the back of the queue at an unchanged price and the next one is shown. |
 | 4 | All but high bidder skip | Instant "VERKAUFT!" (3s hammer), no countdown. |
 | 5 | Only one eligible player left in category | Automatic hand-over at min(price, balance) (§5.2) — no solo auctions. |
-| 6 | Full deck cycle with zero sales | Forced allocation (§5.3), free. |
+| 6 | Full deck cycle with zero sales | Allocation at min(price, balance) (§5.3) — provable stasis, resolved in one cycle. |
 | 7 | Player balance 0 with unfilled slots | Still receives the automatic hand-over (free at 0 balance) or forced allocation. Never stuck. |
 | 8 | Bid > balance | Rejected client- and server-side. |
 | 9 | High bidder tries to skip | Impossible — bids are binding, UI hides SKIP while leading. |

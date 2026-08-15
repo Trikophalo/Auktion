@@ -14,7 +14,7 @@ before any polish exists.
 
 ## M2 — Auction core loop (the game's heart, one category)
 - Engine: phases CATEGORY_START → AUCTION_* with bid validation, quick-bid, skip,
-  soft timer + countdown as timer-commands, sold/passed resolution, price decay,
+  auction clock + hot window as timer-commands, sold/passed resolution,
   eligibility, Last Pick, forced allocation. **Full unit-test suite for doc 01 §11.**
 - Client: board grid, player HUDs, auction stage, bid bar, reveal sequence
   (pixelation), countdown overlay, sold flight animation (basic version).
@@ -42,7 +42,7 @@ before any polish exists.
 - ✅ *Accept:* the reveal demos well with hidden scores producing ≥1 surprise swing.
 
 ## M6 — Balance, responsive, hardening
-- `tools/simulate.ts`: 10k bot games → tune bids/scores/decay/injections to the targets
+- `tools/simulate.ts`: bot games → tune bids/scores/injections to the targets
   in doc 01 §7 (forced allocation <0.1%, healthy leftover-cash median, sleeper teams
   can win).
 - Tablet/mobile layouts, touch bid bar, Playwright smoke (lobby → 1 category → reveal),

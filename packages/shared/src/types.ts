@@ -168,8 +168,8 @@ export interface AutoAssignState {
 }
 
 export interface ForcedAllocationState {
-  /** playerId -> characterId dealt for free. */
-  awards: { playerId: string; characterId: CharacterId }[];
+  /** What each remaining player was dealt, and what they paid for it. */
+  awards: { playerId: string; characterId: CharacterId; price: number }[];
 }
 
 export interface TradeOffer {
@@ -305,9 +305,9 @@ export type GameEvent =
   | { type: 'auction:skip'; playerId: string }
   | { type: 'auction:timeSkip'; playerId: string; votes: number; needed: number; applied: boolean }
   | { type: 'auction:sold'; playerId: string; amount: number; characterId: CharacterId; categoryId: CategoryId }
-  | { type: 'auction:passed'; characterId: CharacterId; newStartingBid: number }
+  | { type: 'auction:passed'; characterId: CharacterId }
   | { type: 'auction:autoAssign'; playerId: string; characterId: CharacterId; price: number; fullPrice: number }
-  | { type: 'forced:allocate'; awards: { playerId: string; characterId: CharacterId }[] }
+  | { type: 'forced:allocate'; awards: { playerId: string; characterId: CharacterId; price: number }[] }
   | { type: 'category:end'; recap: CategoryRecapEntry[] }
   | { type: 'economy:injection'; grants: { playerId: string; amount: number }[] }
   | { type: 'trading:start'; endsAt: number }

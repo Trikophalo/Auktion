@@ -74,8 +74,8 @@ friends, and start.
 | Problem | Solution |
 | --- | --- |
 | Guarantee everyone ends with exactly 10 characters | Each category deals exactly one character per player; players who filled a category can't bid in it any more; the last player left is **handed the leftover** at `min(price, balance)` — free if broke; a **forced free allocation** backstops any deadlock |
-| Broke players locked out | Skipped characters return **25% cheaper** (floor 10M), plus a cash injection per category, plus free-if-broke hand-overs — every board completes regardless of balance |
-| Everyone skips | Auction ends instantly, character re-enters the deck at a random position, cheaper |
+| Broke players locked out | Both the last-player hand-over and the dead-cycle allocation cap the payment at the player's balance, so someone with nothing still completes their board |
+| Everyone skips | Auction ends instantly; the character goes to the back of the queue at an unchanged price and the next one comes up. A full cycle without a bid is provable stasis, so the rest is allocated at the minimum price |
 | Simultaneous bids | Single per-room action queue; quick-bid is a **relative** "+5M" intent, so it can't lose a race |
 | Trades breaking the board | Only same-category swaps exist, so the one-per-category invariant is structural |
 | Score cheating | The client bundle contains **zero** character data — scores live only on the server and are sent at the reveal |

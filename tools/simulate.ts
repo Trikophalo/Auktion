@@ -199,7 +199,7 @@ function main() {
   console.log('\n── Wie Charaktere erworben wurden ─────────────');
   console.log(`   Auktion           ${pct(stats.viaAuction, picks)}`);
   console.log(`   Auto-Zuteilung    ${pct(stats.viaAuto, picks)}`);
-  console.log(`   Zwangszuteilung   ${pct(stats.viaForced, picks)}   ← sollte ~0% sein`);
+  console.log(`   Zwangszuteilung   ${pct(stats.viaForced, picks)}   ← Runde ohne Gebot, Rest zum Mindestpreis`);
   console.log(`   Durchgereichte Charaktere: ${(stats.passes / GAMES).toFixed(1)} pro Spiel`);
 
   console.log('\n── Ökonomie am Spielende ──────────────────────');

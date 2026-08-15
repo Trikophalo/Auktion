@@ -32,7 +32,7 @@ week), SSR/Next (this is an app, not a site).
 │   │       │   ├── state.ts      # GameState types + invariant helpers
 │   │       │   ├── actions.ts    # PlayerAction / SystemAction unions
 │   │       │   ├── reduce.ts     # (state, action) → {state, events, timers}
-│   │       │   ├── auction.ts    # bid validation, countdown logic, decay
+│   │       │   ├── auction.ts    # bid validation, auction clock, hot window
 │   │       │   ├── completion.ts # eligibility, Last Pick, forced allocation
 │   │       │   ├── trading.ts    # offer lifecycle + escrow validation
 │   │       │   ├── economy.ts    # balances, injections, formatting
@@ -115,7 +115,7 @@ All names/payloads in `shared/protocol.ts` — client and server import the same
 
 **Server → client (events):**
 `room:state` *(full redacted snapshot — on join/rejoin/desync)* ·
-`auction:intro {category, startingBid, decayedFrom?, revealTimeline}` ·
+`auction:intro {category, startingBid, revealTimeline}` ·
 `auction:imageStep {step}` · `auction:nameReveal {name, epithet}` ·
 `auction:bidAccepted {playerId, amount}` · `auction:bidRejected {reason, currentBid}` ·
 `auction:playerSkipped {playerId}` · `auction:countdown {n}` ·

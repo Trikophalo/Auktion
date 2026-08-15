@@ -32,7 +32,7 @@ export function AuctionStage() {
   }
 
   const nameHidden = revealing && pixelLevel > 0.12;
-  const discounted = auction.timesPassed > 0;
+  const returning = auction.timesPassed > 0;
 
   return (
     <aside className={`stage ${hot ? 'panic' : ''}`} style={{ '--accent': category.color } as React.CSSProperties}>
@@ -54,9 +54,9 @@ export function AuctionStage() {
         >
           {moneyFull(auction.startingBid)}
         </motion.span>
-        {discounted && (
-          <span className="discount">
-            <s>{money(auction.originalBid)}</s> · {auction.timesPassed}× übrig geblieben
+        {returning && (
+          <span className="returning">
+            Schon {auction.timesPassed}× übrig geblieben - Preis bleibt gleich
           </span>
         )}
       </div>

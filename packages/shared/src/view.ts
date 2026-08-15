@@ -60,7 +60,7 @@ export interface ClientState {
   deckSize: number;
   auction: ClientAuction | null;
   autoAssign: { playerId: string; characterId: CharacterId; price: number; fullPrice: number } | null;
-  forced: { awards: { playerId: string; characterId: CharacterId }[] } | null;
+  forced: { awards: { playerId: string; characterId: CharacterId; price: number }[] } | null;
   trading: { offers: TradeOffer[]; readyPlayers: string[]; endsAt: number } | null;
   reveal: {
     revealedColumns: number;

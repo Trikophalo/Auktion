@@ -240,7 +240,7 @@ describe('auction resolution', () => {
     expect(h.state.phase).toBe('auction_sold');
   });
 
-  it('cycles a fully skipped character back into the deck 25% cheaper', () => {
+  it('cycles a fully skipped character back at the same price', () => {
     const h = new Harness(['A', 'B']);
     h.start();
     h.tickUntil((s) => s.phase === 'auction_open');
@@ -253,28 +253,62 @@ describe('auction resolution', () => {
     const deck = h.state.decks[h.category];
     const back = deck.find((d) => d.characterId === characterId);
     expect(back).toBeDefined();
-    expect(back!.startingBid).toBeLessThan(startingBid);
-    expect(back!.startingBid % RULES.BID_STEP).toBe(0);
+    // The price is untouched - passing never makes a character cheaper.
+    expect(back!.startingBid).toBe(startingBid);
     expect(back!.timesPassed).toBe(1);
-    // Nobody paid anything.
+    // ...and it waits at the back of the queue, so the next one comes up.
+    expect(deck.at(-1)!.characterId).toBe(characterId);
     expect(h.player('p0').money).toBe(RULES.START_MONEY);
   });
 
-  it('never decays below the floor and always stays affordable eventually', () => {
+  it('never sells a character below its starting bid, however often it cycles', () => {
     const h = new Harness(['A', 'B']);
     h.start();
     h.tickUntil((s) => s.phase === 'auction_open');
-    const id = h.state.auction!.characterId;
 
-    for (let i = 0; i < 12; i++) {
-      if (h.state.phase !== 'auction_open') h.tickUntil((s) => s.phase === 'auction_open' || s.phase === 'auto_assign' || s.phase === 'forced_allocation');
-      if (h.state.phase !== 'auction_open') break;
+    const original = new Map(
+      h.state.decks[h.category].map((d) => [d.characterId, d.startingBid]),
+    );
+    original.set(h.state.auction!.characterId, h.state.auction!.startingBid);
+
+    for (let i = 0; i < 8 && h.state.phase === 'auction_open'; i++) {
       h.act('SKIP', 'p0');
       h.act('SKIP', 'p1');
+      if (h.state.phase !== 'auction_open') {
+        h.tickUntil((s) => s.phase === 'auction_open' || s.phase === 'forced_allocation' || s.phase === 'category_end');
+      }
     }
 
-    const entry = h.state.decks[h.category].find((d) => d.characterId === id);
-    if (entry) expect(entry.startingBid).toBeGreaterThanOrEqual(RULES.DECAY_FLOOR);
+    for (const entry of h.state.decks[h.category]) {
+      expect(entry.startingBid).toBe(original.get(entry.characterId));
+    }
+  });
+
+  it('stops looping once a full cycle passed without a bid', () => {
+    const h = new Harness(['A', 'B', 'C']);
+    h.start();
+    h.tickUntil((s) => s.phase === 'auction_open');
+
+    // Nobody can afford anything, so every character is passed.
+    h.state = { ...h.state, players: h.state.players.map((p) => ({ ...p, money: 0 })) };
+
+    let guard = 0;
+    while (h.state.phase !== 'category_end' && guard++ < 200) {
+      if (h.state.phase === 'auction_open') {
+        for (const p of h.state.players) if (!p.roster[h.category]) h.act('SKIP', p.id);
+      } else {
+        h.tick();
+      }
+    }
+
+    // Everyone still ends up with a character, free because they are broke.
+    for (const p of h.state.players) {
+      const owned = p.roster[h.state.categoryOrder[0]];
+      expect(owned).toBeDefined();
+      expect(owned!.pricePaid).toBe(0);
+    }
+    // And it resolved in roughly one cycle, not after a long stall.
+    expect(guard).toBeLessThan(40);
   });
 
   it('drops a character nobody bid on when the soft timer expires', () => {
@@ -505,11 +539,33 @@ describe('completion guarantee', () => {
       }
     }
 
-    // Everyone got a character without paying a single Berry.
+    // Broke players pay nothing, but they do all end up with a character.
     for (const p of h.state.players) {
       expect(p.roster[h.state.categoryOrder[0]]).toBeDefined();
       expect(p.roster[h.state.categoryOrder[0]]!.pricePaid).toBe(0);
       expect(p.totalSpent).toBe(0);
+    }
+  });
+
+  it('charges the minimum price when players could have paid', () => {
+    const h = new Harness(['A', 'B', 'C']);
+    h.start();
+    h.tickUntil((s) => s.phase === 'auction_open');
+
+    // Everyone is rich but stubbornly passes - allocation must not be a freebie.
+    let guard = 0;
+    while (h.state.phase !== 'forced_allocation' && guard++ < 200) {
+      if (h.state.phase === 'auction_open') {
+        for (const p of h.state.players) if (!p.roster[h.category]) h.act('SKIP', p.id);
+      } else {
+        h.tick();
+      }
+    }
+
+    expect(h.state.phase).toBe('forced_allocation');
+    for (const award of h.state.forced!.awards) {
+      expect(award.price).toBeGreaterThan(0);
+      expect(h.player(award.playerId).money).toBeLessThan(RULES.START_MONEY);
     }
   });
 });

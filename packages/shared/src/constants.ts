@@ -13,11 +13,6 @@ export const RULES = {
   /** Lower bound of a random cash injection. */
   INJECTION_MIN: 10 * MILLION,
 
-  /** A character nobody wanted returns to the deck this much cheaper. */
-  DECAY_FACTOR: 0.75,
-  /** ...but never below this. Guarantees prices eventually reach payable levels. */
-  DECAY_FLOOR: 10 * MILLION,
-
   /** Player count bounds. */
   MIN_PLAYERS: 2,
   MAX_PLAYERS: 6,
@@ -122,8 +117,14 @@ export const TIMINGS = {
 } as const;
 
 /**
- * Deadlock backstop: if this many auctions in a row end with nobody bidding,
- * remaining players are simply dealt a free character. With price decay this
- * should effectively never fire - it exists so that "stuck" is impossible.
+ * Deadlock detection.
+ *
+ * Prices never change, so if every character still in the deck has been offered
+ * once in a row without a single bid, nothing about the situation can improve -
+ * the same characters would come back at the same prices to the same wallets.
+ * That is provable stasis after exactly one full cycle, and the remaining
+ * players are dealt what is left at the minimum price instead of looping.
  */
-export const FORCED_ALLOCATION_AFTER_PASSES = 10;
+export function isDeadlocked(consecutivePasses: number, deckSize: number): boolean {
+  return deckSize > 0 && consecutivePasses >= deckSize;
+}

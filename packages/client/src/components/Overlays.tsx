@@ -56,7 +56,8 @@ export function AutoAssignOverlay() {
   const player = state.players.find((p) => p.id === playerId)!;
   const category = theme.categories.find((c) => c.id === state.categoryOrder[state.categoryIndex])!;
   const mine = playerId === state.you;
-  const discounted = price < fullPrice;
+  // Not a discount - the payment is capped at whatever the player still has.
+  const capped = price < fullPrice;
 
   return (
     <motion.div className="overlay assign" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -104,8 +105,8 @@ export function AutoAssignOverlay() {
               <b className="free">GRATIS</b>
             ) : (
               <>
-                {discounted && <s>{money(fullPrice)}</s>} <b>{moneyFull(price)}</b>
-                <em> Mindestpreis</em>
+                {capped && <s>{money(fullPrice)}</s>} <b>{moneyFull(price)}</b>
+                <em>{capped ? ' - mehr war nicht auf dem Konto' : ' Mindestpreis'}</em>
               </>
             )}
           </span>
@@ -115,7 +116,7 @@ export function AutoAssignOverlay() {
   );
 }
 
-/** Free characters dealt when a category somehow stalls completely. */
+/** What is left is dealt out when a whole cycle passes without a single bid. */
 export function ForcedOverlay() {
   const state = useGame((s) => s.state)!;
   const characters = useGame((s) => s.characters);
@@ -125,7 +126,9 @@ export function ForcedOverlay() {
     <motion.div className="overlay forced" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <div className="overlay-card">
         <h2 className="overlay-title">ZWANGSZUTEILUNG</h2>
-        <p className="overlay-sub">Niemand wollte bieten - das Auktionshaus verteilt gratis.</p>
+        <p className="overlay-sub">
+          Eine ganze Runde ohne Gebot - das Auktionshaus verteilt den Rest zum Mindestpreis.
+        </p>
         <div className="forced-list">
           {state.forced.awards.map((award, i) => {
             const player = state.players.find((p) => p.id === award.playerId);
@@ -139,7 +142,9 @@ export function ForcedOverlay() {
               >
                 <span>{player?.avatar} {player?.name}</span>
                 <b>{characters.get(award.characterId)?.name}</b>
-                <span className="free">GRATIS</span>
+                <span className={award.price === 0 ? 'free' : 'forced-price'}>
+                  {award.price === 0 ? 'GRATIS' : money(award.price)}
+                </span>
               </motion.div>
             );
           })}

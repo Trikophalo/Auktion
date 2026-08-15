@@ -8,12 +8,7 @@ import type {
   ReduceResult,
   TradeOffer,
 } from '../types.js';
-import {
-  FORCED_ALLOCATION_AFTER_PASSES,
-  RULES,
-  TIMINGS,
-  normaliseSettings,
-} from '../constants.js';
+import { RULES, TIMINGS, isDeadlocked, normaliseSettings } from '../constants.js';
 import { nextInt, pick } from '../rng.js';
 import { getTheme, playerCapacity, toPublic } from '../theme/index.js';
 import { applyInjection, computeAwards, computeTotals, partialTotals } from './economy.js';
@@ -21,7 +16,6 @@ import {
   bump,
   categoryOf,
   characterOf,
-  decayedBid,
   eligiblePlayers,
   isTradingDue,
   minNextBid,
@@ -114,10 +108,7 @@ function beginNextAuction(state: GameState, now: number): Flow {
   // Unreachable with a well-formed deck, but the game must degrade gracefully.
   if (deck.length === 0) return endCategory(state, now);
 
-  // A fixed threshold, deliberately not scaled to the (now tiny) deck: price
-  // decay needs ~8 rounds to reach the floor, and a table must not be able to
-  // collude into free characters by simply passing on everything once.
-  if (eligible.length > 1 && state.consecutivePasses >= FORCED_ALLOCATION_AFTER_PASSES) {
+  if (eligible.length > 1 && isDeadlocked(state.consecutivePasses, deck.length)) {
     return forcedAllocation(state, now);
   }
 
@@ -219,29 +210,26 @@ function sellToLeader(state: GameState, now: number): Flow {
 }
 
 /**
- * Nobody wanted this character: they go back into the deck at a random position
- * and 25% cheaper (floor 10M). The decay is what guarantees that a category can
- * always be finished, even by broke players.
+ * Nobody wanted this character: they go to the back of the queue at exactly the
+ * same price and the next one comes up. A character never sells below its
+ * starting bid, so waiting someone out only costs time, never money.
+ *
+ * Because the price never moves, a full cycle without a single bid proves the
+ * situation cannot improve - that is what `isDeadlocked` watches for.
  */
 function passCharacter(state: GameState, now: number): Flow {
   const auction = state.auction!;
   const categoryId = categoryOf(state);
-  const newBid = decayedBid(auction.startingBid);
 
   const entry: DeckEntry = {
     characterId: auction.characterId,
-    startingBid: newBid,
+    startingBid: auction.startingBid,
     timesPassed: auction.timesPassed + 1,
   };
 
-  const deck = state.decks[categoryId];
-  const [position, rng] = nextInt(state.rng, 0, deck.length);
-  const nextDeck = [...deck.slice(0, position), entry, ...deck.slice(position)];
-
   const s0: GameState = {
     ...state,
-    rng,
-    decks: { ...state.decks, [categoryId]: nextDeck },
+    decks: { ...state.decks, [categoryId]: [...state.decks[categoryId], entry] },
     phase: 'auction_passed',
     consecutivePasses: state.consecutivePasses + 1,
   };
@@ -249,7 +237,7 @@ function passCharacter(state: GameState, now: number): Flow {
   const { state: s1, timer } = schedule(s0, now, TIMINGS.PASSED);
   return {
     state: s1,
-    events: [{ type: 'auction:passed', characterId: auction.characterId, newStartingBid: newBid }],
+    events: [{ type: 'auction:passed', characterId: auction.characterId }],
     timer,
   };
 }
@@ -306,14 +294,18 @@ function autoAssign(state: GameState, now: number, playerId: string, entry: Deck
 }
 
 /**
- * Deadlock backstop. If an entire deck cycle passes without a single bid, every
- * remaining player is simply dealt a free character.
+ * Nobody bid for a full cycle, so the auction house allocates what is left.
+ *
+ * Each remaining player pays the minimum price, capped at their balance - the
+ * exact same deal as the last-player hand-over. Dealing these for free would
+ * hand the table an exploit: everyone passes on everything and collects a whole
+ * category for nothing.
  */
 function forcedAllocation(state: GameState, now: number): Flow {
   const categoryId = categoryOf(state);
   let deck = state.decks[categoryId];
   let rng = state.rng;
-  const awards: { playerId: string; characterId: string }[] = [];
+  const awards: { playerId: string; characterId: string; price: number }[] = [];
   let s0 = state;
 
   for (const player of eligiblePlayers(state)) {
@@ -323,12 +315,15 @@ function forcedAllocation(state: GameState, now: number): Flow {
     const entry = deck[index];
     deck = deck.filter((_, i) => i !== index);
 
-    awards.push({ playerId: player.id, characterId: entry.characterId });
+    const price = Math.min(entry.startingBid, playerOf(s0, player.id)!.money);
+    awards.push({ playerId: player.id, characterId: entry.characterId, price });
     s0 = withPlayer(s0, player.id, (p) => ({
       ...p,
+      money: p.money - price,
+      totalSpent: p.totalSpent + price,
       roster: {
         ...p.roster,
-        [categoryId]: { characterId: entry.characterId, pricePaid: 0, via: 'forced' as const },
+        [categoryId]: { characterId: entry.characterId, pricePaid: price, via: 'forced' as const },
       },
     }));
   }
