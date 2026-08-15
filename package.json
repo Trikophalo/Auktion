@@ -1,0 +1,48 @@
+{
+  "name": "grand-line-auction",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Grand Line Auction - a multiplayer One Piece team-building auction game",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/client"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n SERVER,CLIENT -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch packages/server/src/index.ts",
+    "dev:client": "vite --config packages/client/vite.config.ts",
+    "build": "vite build --config packages/client/vite.config.ts",
+    "start": "NODE_ENV=production tsx packages/server/src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "simulate": "tsx tools/simulate.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "playwright": "^1.62.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "canvas-confetti": "^1.9.3",
+    "framer-motion": "^11.15.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "zustand": "^5.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
