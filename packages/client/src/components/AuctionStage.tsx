@@ -11,7 +11,8 @@ export function AuctionStage() {
   const category = theme.categories.find((c) => c.id === state.categoryOrder[state.categoryIndex])!;
 
   const revealing = state.phase === 'auction_reveal';
-  const pixelLevel = usePixelReveal(revealing, TIMINGS.AUCTION_REVEAL - 1200, 7);
+  // Keyed on the character so the pixelation resets before the new one paints.
+  const pixelLevel = usePixelReveal(revealing, TIMINGS.AUCTION_REVEAL - 1200, 7, auction?.characterId ?? '');
   const character = useGame((s) => s.character(auction?.characterId));
   const currentBid = useCountUp(auction?.currentBid ?? 0, 450);
   const remaining = useCountdown(state.deadline);

@@ -56,13 +56,20 @@ export function CharacterArt({ character, accent, pixelLevel = 0, width = 320, h
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character?.id, accent, width, height]);
 
+  // Artwork can finish loading at any point during the reveal, and the onload
+  // callback would otherwise redraw with the pixel level captured when the
+  // effect ran - flashing a sharp image mid-reveal, or leaving a slow image
+  // stuck as blocks. The ref always holds the level of the current render.
+  const levelRef = useRef(pixelLevel);
+  levelRef.current = pixelLevel;
+
   function redraw() {
     const canvas = visible.current;
     if (!canvas) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = width * dpr;
     canvas.height = height * dpr;
-    pixelate(source.current, canvas, pixelLevel);
+    pixelate(source.current, canvas, levelRef.current);
   }
 
   useEffect(redraw);

@@ -55,9 +55,29 @@ export function useCountdown(deadline: number | null): number {
   return remaining;
 }
 
-/** Drives the reveal: pixel level 1 -> 0 in discrete, punchy steps. */
-export function usePixelReveal(active: boolean, durationMs: number, steps = 7): number {
+/**
+ * Drives the reveal: pixel level 1 -> 0 in discrete, punchy steps.
+ *
+ * `resetKey` (the character being revealed) is compared during render, not in
+ * an effect. Resetting in an effect would let React paint one frame with the
+ * previous level first - which is exactly long enough to flash the new, fully
+ * sharp character before it pixelates. Adjusting state during render is the
+ * supported way to keep a value in sync with a changing input.
+ */
+export function usePixelReveal(
+  active: boolean,
+  durationMs: number,
+  steps = 7,
+  resetKey: string | number = '',
+): number {
   const [level, setLevel] = useState(active ? 1 : 0);
+  const marker = `${active}|${resetKey}`;
+  const [seenMarker, setSeenMarker] = useState(marker);
+
+  if (marker !== seenMarker) {
+    setSeenMarker(marker);
+    setLevel(active ? 1 : 0);
+  }
 
   useEffect(() => {
     if (!active) {
@@ -73,7 +93,7 @@ export function usePixelReveal(active: boolean, durationMs: number, steps = 7): 
       if (step >= steps) clearInterval(id);
     }, interval);
     return () => clearInterval(id);
-  }, [active, durationMs, steps]);
+  }, [active, durationMs, steps, resetKey]);
 
   return level;
 }

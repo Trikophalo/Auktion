@@ -642,11 +642,11 @@ button { font-family: inherit; }
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  background: linear-gradient(160deg, var(--red), var(--red-deep));
+  background: linear-gradient(160deg, var(--green), #2b9c48);
   border-color: rgba(255, 255, 255, 0.45);
-  color: #fff;
+  color: #04220c;
   padding: 10px 26px;
-  box-shadow: 0 8px 24px rgba(230, 57, 70, 0.4);
+  box-shadow: 0 8px 24px rgba(87, 217, 113, 0.4);
 }
 
 .quick-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1.4px; }
@@ -658,7 +658,13 @@ button { font-family: inherit; }
 .stepper-amount { font-family: var(--display); font-size: 17px; color: var(--gold); }
 .stepper-delta { font-size: 10px; color: var(--ink-dim); font-weight: 700; }
 
-.btn.skip { margin-left: auto; background: rgba(255, 255, 255, 0.06); }
+.btn.skip {
+  margin-left: auto;
+  background: linear-gradient(160deg, var(--red), var(--red-deep));
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(230, 57, 70, 0.32);
+}
 
 /* --------------------------------------------------------------- overlays */
 
@@ -730,7 +736,51 @@ button { font-family: inherit; }
 .free { color: var(--green); font-weight: 900; }
 .recap-price { font-family: var(--display); color: var(--gold); }
 .recap-char { color: var(--ink-dim); }
-.recap-injection { margin-top: 16px; font-family: var(--display); font-size: 18px; color: var(--green); }
+.injection-reveal {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.16);
+}
+
+.injection-title {
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--green);
+  margin-bottom: 10px;
+  letter-spacing: 1px;
+}
+
+.injection-rows { display: flex; flex-direction: column; gap: 6px; }
+
+.injection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid transparent;
+  font-weight: 800;
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.injection-row.open {
+  background: rgba(87, 217, 113, 0.13);
+  border-color: rgba(87, 217, 113, 0.45);
+}
+
+.ir-player { display: flex; align-items: center; gap: 9px; }
+.ir-avatar { font-size: 20px; }
+
+.ir-amount {
+  font-family: var(--display);
+  font-size: 22px;
+  color: var(--green);
+  text-shadow: 0 0 18px rgba(87, 217, 113, 0.55);
+}
+
+.ir-pending { color: var(--ink-dim); letter-spacing: 3px; }
 
 /* -------------------------------------------------------------- countdown */
 
@@ -1124,8 +1174,8 @@ button { font-family: inherit; }
 
 /* Glow only - never move the hit target while players are racing the clock. */
 @keyframes urgentPulse {
-  0%, 100% { box-shadow: 0 8px 24px rgba(230, 57, 70, 0.4); filter: brightness(1); }
-  50% { box-shadow: 0 10px 40px rgba(230, 57, 70, 0.95); filter: brightness(1.18); }
+  0%, 100% { box-shadow: 0 8px 24px rgba(87, 217, 113, 0.45); filter: brightness(1); }
+  50% { box-shadow: 0 10px 40px rgba(87, 217, 113, 0.95); filter: brightness(1.15); }
 }
 
 /* --------------------------------------------------------- auction clock */

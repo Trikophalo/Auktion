@@ -53,7 +53,6 @@ export function Board() {
 function PlayerRow({ playerId, activeCategory }: { playerId: string; activeCategory: string }) {
   const state = useGame((s) => s.state)!;
   const theme = useGame((s) => s.theme)!;
-  const injection = useGame((s) => s.injections[playerId]);
   const player = state.players.find((p) => p.id === playerId)!;
 
   const displayMoney = useCountUp(player.money);
@@ -87,16 +86,6 @@ function PlayerRow({ playerId, activeCategory }: { playerId: string; activeCateg
           {!isLeader && !hasSkipped && isSpectating && <span className="chip spec">fertig</span>}
         </div>
 
-        {injection !== undefined && (
-          <motion.div
-            className="injection"
-            initial={{ y: 8, opacity: 0, scale: 0.8 }}
-            animate={{ y: -26, opacity: [0, 1, 1, 0], scale: 1 }}
-            transition={{ duration: 2.2, times: [0, 0.15, 0.7, 1] }}
-          >
-            +{money(injection)}
-          </motion.div>
-        )}
       </div>
 
       {state.categoryOrder.map((catId) => {

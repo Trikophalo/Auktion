@@ -25,8 +25,6 @@ interface GameStore {
   stinger: Stinger | null;
   /** Latest events, consumed by components for one-off animations. */
   lastEvents: GameEvent[];
-  /** Injection amounts currently flying into the HUDs. */
-  injections: Record<string, number>;
   lastBidder: string | null;
   /** serverNow - Date.now(), so countdowns are immune to a skewed local clock. */
   clockOffset: number;
@@ -58,7 +56,6 @@ export const useGame = create<GameStore>((set, get) => ({
   toasts: [],
   stinger: null,
   lastEvents: [],
-  injections: {},
   lastBidder: null,
   clockOffset: 0,
   unreadChat: 0,
@@ -192,14 +189,10 @@ function handleEvent(event: GameEvent, set: Setter, get: () => GameStore) {
       showStinger(set, { kind: 'forced', title: 'ZWANGSZUTEILUNG', detail: 'Gratis-Charaktere für alle Übriggebliebenen' });
       break;
 
-    case 'economy:injection': {
-      sfx.coins();
-      const map: Record<string, number> = {};
-      for (const g of event.grants) map[g.playerId] = g.amount;
-      set({ injections: map });
-      setTimeout(() => set({ injections: {} }), 2600);
+    case 'economy:injection':
+      // The payout is revealed player by player in the category-end overlay,
+      // which owns its own sound and timing.
       break;
-    }
 
     case 'trading:start':
       sfx.coins();

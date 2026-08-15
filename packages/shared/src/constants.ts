@@ -93,8 +93,13 @@ export const TIMINGS = {
   AUTO_ASSIGN: 4_200,
   /** Deadlock backstop: one free character dealt per remaining player. */
   FORCED_ALLOCATION: 4_000,
-  /** Category recap + money injection. */
-  CATEGORY_END: 5_200,
+  /**
+   * Category recap + money injection. The injection is revealed one player at
+   * a time, so the phase has to grow with the table - otherwise the last
+   * player's payout would be cut off before anyone could read it.
+   */
+  CATEGORY_END_BASE: 4_200,
+  CATEGORY_END_PER_PLAYER: 900,
   /** Market phase. */
   TRADING: 90_000,
   /** An open offer keeps the phase alive at least this long. */

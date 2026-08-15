@@ -369,7 +369,12 @@ function endCategory(state: GameState, now: number): Flow {
     events.push({ type: 'economy:injection', grants: injected.grants });
   }
 
-  const { state: s1, timer } = schedule(s0, now, TIMINGS.CATEGORY_END);
+  // No injection after the last category, so no per-player reveal to wait for.
+  const duration = isLastCategory
+    ? TIMINGS.CATEGORY_END_BASE
+    : TIMINGS.CATEGORY_END_BASE + state.players.length * TIMINGS.CATEGORY_END_PER_PLAYER;
+
+  const { state: s1, timer } = schedule(s0, now, duration);
   return { state: s1, events, timer };
 }
 

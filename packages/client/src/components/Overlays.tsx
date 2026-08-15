@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { TIMINGS, money, moneyFull } from '@gla/shared';
 import { useGame } from '../store/game';
-import { useCountdown } from '../fx/hooks';
+import { sfx } from '../store/sound';
+import { useCountUp, useCountdown } from '../fx/hooks';
 import { CharacterArt } from './CharacterArt';
 
 /**
@@ -182,12 +184,80 @@ export function CategoryEndOverlay() {
             );
           })}
         </div>
-        {state.lastInjection.length > 0 && (
-          <motion.div className="recap-injection" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
-            💰 Geldspritze für alle
-          </motion.div>
-        )}
+        {state.lastInjection.length > 0 && <InjectionReveal />}
       </motion.div>
     </motion.div>
   );
+}
+
+/**
+ * The cash injection, paid out one player at a time.
+ *
+ * Showing every payout at once made it impossible to see who got what - the
+ * numbers are the whole point, so each one gets its own beat, its own coin
+ * sound and a counter that ticks up to the amount.
+ */
+function InjectionReveal() {
+  const state = useGame((s) => s.state)!;
+  const grants = state.lastInjection;
+  const [revealed, setRevealed] = useState(0);
+
+  const START_DELAY = 900;
+  const STEP = 800;
+
+  useEffect(() => {
+    setRevealed(0);
+    const timers = grants.map((_, i) =>
+      setTimeout(() => {
+        setRevealed(i + 1);
+        sfx.coins();
+      }, START_DELAY + i * STEP),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [grants]);
+
+  return (
+    <div className="injection-reveal">
+      <motion.div
+        className="injection-title"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+      >
+        💰 Geldspritze
+      </motion.div>
+
+      <div className="injection-rows">
+        {grants.map((grant, i) => {
+          const player = state.players.find((p) => p.id === grant.playerId);
+          const open = i < revealed;
+          return (
+            <div key={grant.playerId} className={`injection-row ${open ? 'open' : ''}`}>
+              <span className="ir-player">
+                <span className="ir-avatar">{player?.avatar}</span>
+                {player?.name}
+              </span>
+              {open ? (
+                <motion.span
+                  className="ir-amount"
+                  initial={{ scale: 2, opacity: 0, x: 20 }}
+                  animate={{ scale: 1, opacity: 1, x: 0 }}
+                  transition={{ type: 'spring', stiffness: 340, damping: 15 }}
+                >
+                  +<CountingAmount value={grant.amount} />
+                </motion.span>
+              ) : (
+                <span className="ir-pending">…</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CountingAmount({ value }: { value: number }) {
+  const display = useCountUp(value, 600);
+  return <>{money(Math.round(display / 5_000_000) * 5_000_000)}</>;
 }
