@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import type { CharacterPublic, ClientState, GameEvent, JoinResult, ThemeInfo } from '@gla/shared';
+import type { CharacterPublic, ClientState, GameEvent, GameSettings, JoinResult, ThemeInfo } from '@gla/shared';
 import { useGame } from '../store/game';
 
 let socket: Socket | null = null;
@@ -90,11 +90,13 @@ export const net = {
   },
 
   ready: (ready: boolean) => sock().emit('lobby:ready', { ready }),
+  settings: (settings: Partial<GameSettings>) => sock().emit('lobby:settings', settings),
   start: () => sock().emit('game:start'),
   quickBid: () => sock().emit('auction:quickBid'),
   bid: (amount: number) => sock().emit('auction:bid', { amount }),
   skip: () => sock().emit('auction:skip'),
-  lastPick: (characterId: string) => sock().emit('lastPick:choose', { characterId }),
+  skipTime: () => sock().emit('auction:skipTime'),
+  chat: (text: string) => sock().emit('chat:send', { text }),
   tradeOffer: (payload: {
     toId: string;
     giveCharacterId: string;

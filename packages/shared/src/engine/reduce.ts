@@ -1,14 +1,20 @@
 import type {
   Action,
   CategoryRecapEntry,
+  ChatMessage,
   DeckEntry,
   GameEvent,
   GameState,
   ReduceResult,
   TradeOffer,
 } from '../types.js';
-import { FORCED_ALLOCATION_AFTER_PASSES, LAST_PICK_OPTIONS, RULES, TIMINGS } from '../constants.js';
-import { nextInt, shuffle } from '../rng.js';
+import {
+  FORCED_ALLOCATION_AFTER_PASSES,
+  RULES,
+  TIMINGS,
+  normaliseSettings,
+} from '../constants.js';
+import { nextInt } from '../rng.js';
 import { toPublic } from '../theme/index.js';
 import { applyInjection, computeAwards, computeTotals, partialTotals } from './economy.js';
 import {
@@ -38,6 +44,23 @@ function fail(state: GameState, playerId: string, message: string): ReduceResult
   return { state, events: [{ type: 'error', playerId, message }], timer: null };
 }
 
+/** Appends a system line to the chat, which doubles as the game log. */
+function withSystemChat(state: GameState, text: string, now: number): { state: GameState; event: GameEvent } {
+  const message: ChatMessage = {
+    id: state.seq + 1,
+    playerId: null,
+    name: 'Auktionshaus',
+    avatar: '📣',
+    text,
+    at: now,
+    kind: 'system',
+  };
+  return {
+    state: { ...state, seq: state.seq + 1, chat: [...state.chat, message].slice(-RULES.CHAT_HISTORY) },
+    event: { type: 'chat:message', message },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Flow: category / auction lifecycle
 // ---------------------------------------------------------------------------
@@ -48,7 +71,7 @@ function startCategory(state: GameState, now: number): Flow {
     ...state,
     phase: 'category_intro',
     auction: null,
-    lastPick: null,
+    autoAssign: null,
     forced: null,
     trading: null,
     consecutivePasses: 0,
@@ -74,9 +97,12 @@ function startCategory(state: GameState, now: number): Flow {
  * completion guarantee:
  *
  *   0 eligible players  -> category is done
- *   too many dead ends  -> forced allocation (free characters, no deadlock)
- *   1 eligible player   -> Last Pick (never a solo "auction")
- *   otherwise           -> draw the next character and run a real auction
+ *   too many dead ends  -> forced allocation (free characters)
+ *   1 eligible player   -> the last character is handed to them automatically
+ *   otherwise           -> draw the next character, run a real auction
+ *
+ * Because every deck holds exactly one character per player, "1 player left"
+ * always means "1 character left" - they belong together by construction.
  */
 function beginNextAuction(state: GameState, now: number): Flow {
   const eligible = eligiblePlayers(state);
@@ -85,15 +111,17 @@ function beginNextAuction(state: GameState, now: number): Flow {
   const categoryId = categoryOf(state);
   const deck = state.decks[categoryId];
 
-  // Unreachable with valid theme data (pool >= 12, at most 6 buyers), but the
-  // game must degrade gracefully rather than hang if a theme is misconfigured.
+  // Unreachable with a well-formed deck, but the game must degrade gracefully.
   if (deck.length === 0) return endCategory(state, now);
 
-  if (state.consecutivePasses >= Math.min(FORCED_ALLOCATION_AFTER_PASSES, deck.length)) {
+  // A fixed threshold, deliberately not scaled to the (now tiny) deck: price
+  // decay needs ~8 rounds to reach the floor, and a table must not be able to
+  // collude into free characters by simply passing on everything once.
+  if (eligible.length > 1 && state.consecutivePasses >= FORCED_ALLOCATION_AFTER_PASSES) {
     return forcedAllocation(state, now);
   }
 
-  if (eligible.length === 1) return startLastPick(state, now, eligible[0].id);
+  if (eligible.length === 1) return autoAssign(state, now, eligible[0].id, deck[0]);
 
   const [entry, ...rest] = deck;
   const character = characterOf(state, entry.characterId);
@@ -110,8 +138,8 @@ function beginNextAuction(state: GameState, now: number): Flow {
       currentBid: 0,
       leaderId: null,
       skipped: [],
+      timeSkips: [],
       bids: [],
-      countdown: null,
     },
   };
 
@@ -135,15 +163,16 @@ function openBidding(state: GameState, now: number): Flow {
   const s0: GameState = { ...state, phase: 'auction_open' };
   // Players may press SKIP during the reveal; if everyone did, resolve at once.
   const settled = maybeResolveEarly(s0, now);
-  if (settled) return { ...settled, events: [{ type: 'auction:open' }, ...settled.events] };
+  if (settled) return settled;
 
-  const { state: s1, timer } = schedule(s0, now, TIMINGS.SOFT_TIMER);
-  return { state: s1, events: [{ type: 'auction:open' }], timer };
+  const ms = state.settings.auctionSeconds * 1000;
+  const { state: s1, timer } = schedule(s0, now, ms);
+  return { state: s1, events: [{ type: 'auction:open', endsAt: now + ms }], timer };
 }
 
 /** Nobody left to act? Then sell (or pass) immediately instead of idling. */
 function maybeResolveEarly(state: GameState, now: number): Flow | null {
-  if (state.phase !== 'auction_open' && state.phase !== 'auction_countdown') return null;
+  if (state.phase !== 'auction_open') return null;
   if (pendingPlayers(state).length > 0) return null;
   return state.auction?.leaderId ? sellToLeader(state, now) : passCharacter(state, now);
 }
@@ -168,14 +197,22 @@ function sellToLeader(state: GameState, now: number): Flow {
     ...s0,
     phase: 'auction_sold',
     consecutivePasses: 0,
-    auction: { ...auction, countdown: null, winnerId, winningBid: amount },
+    auction: { ...auction, winnerId, winningBid: amount },
   };
 
-  const { state: s1, timer } = schedule(s0, now, TIMINGS.SOLD);
+  const winner = playerOf(s0, winnerId)!;
+  const chat = withSystemChat(
+    s0,
+    `${winner.name} ersteigert ${characterOf(s0, auction.characterId).name} für ${Math.round(amount / 1_000_000)} Mio.`,
+    now,
+  );
+
+  const { state: s1, timer } = schedule(chat.state, now, TIMINGS.SOLD);
   return {
     state: s1,
     events: [
       { type: 'auction:sold', playerId: winnerId, amount, characterId: auction.characterId, categoryId },
+      chat.event,
     ],
     timer,
   };
@@ -207,7 +244,6 @@ function passCharacter(state: GameState, now: number): Flow {
     decks: { ...state.decks, [categoryId]: nextDeck },
     phase: 'auction_passed',
     consecutivePasses: state.consecutivePasses + 1,
-    auction: { ...auction, countdown: null },
   };
 
   const { state: s1, timer } = schedule(s0, now, TIMINGS.PASSED);
@@ -219,49 +255,14 @@ function passCharacter(state: GameState, now: number): Flow {
 }
 
 /**
- * Only one player still needs this category. A solo auction would be pointless,
- * so they get a real decision instead: three face-up characters, pick one.
- * Payment is capped at their balance - if they are broke, it is free.
+ * One player, one character, no auction to run: the leftover is handed over at
+ * its current starting price - capped at whatever the player can still afford,
+ * so a broke player gets it for free and the board always completes.
  */
-function startLastPick(state: GameState, now: number, playerId: string): Flow {
+function autoAssign(state: GameState, now: number, playerId: string, entry: DeckEntry): Flow {
   const categoryId = categoryOf(state);
-  const deck = state.decks[categoryId];
-  const [shuffled, rng] = shuffle(deck, state.rng);
-  const options = shuffled.slice(0, Math.min(LAST_PICK_OPTIONS, shuffled.length));
-
-  const s0: GameState = {
-    ...state,
-    rng,
-    phase: 'last_pick',
-    auction: null,
-    lastPick: { playerId, options },
-  };
-  const { state: s1, timer } = schedule(s0, now, TIMINGS.LAST_PICK);
-
-  return {
-    state: s1,
-    events: [
-      {
-        type: 'lastPick:start',
-        playerId,
-        options: options.map((o) => ({
-          character: toPublic(characterOf(state, o.characterId)),
-          startingBid: o.startingBid,
-        })),
-      },
-    ],
-    timer,
-  };
-}
-
-function resolveLastPick(state: GameState, now: number, characterId: string): Flow {
-  const { playerId, options } = state.lastPick!;
-  const option = options.find((o) => o.characterId === characterId) ?? options[0];
   const player = playerOf(state, playerId)!;
-  const categoryId = categoryOf(state);
-
-  // Free if they cannot afford it: the game must never be impossible to finish.
-  const price = Math.min(option.startingBid, player.money);
+  const price = Math.min(entry.startingBid, player.money);
 
   let s0 = withPlayer(state, playerId, (p) => ({
     ...p,
@@ -269,7 +270,7 @@ function resolveLastPick(state: GameState, now: number, characterId: string): Fl
     totalSpent: p.totalSpent + price,
     roster: {
       ...p.roster,
-      [categoryId]: { characterId: option.characterId, pricePaid: price, via: 'last_pick' as const },
+      [categoryId]: { characterId: entry.characterId, pricePaid: price, via: 'auto' as const },
     },
   }));
 
@@ -277,24 +278,36 @@ function resolveLastPick(state: GameState, now: number, characterId: string): Fl
     ...s0,
     decks: {
       ...s0.decks,
-      [categoryId]: s0.decks[categoryId].filter((d) => d.characterId !== option.characterId),
+      [categoryId]: s0.decks[categoryId].filter((d) => d.characterId !== entry.characterId),
     },
-    lastPick: { ...s0.lastPick!, chosen: option.characterId },
+    phase: 'auto_assign',
+    auction: null,
     consecutivePasses: 0,
+    autoAssign: { playerId, characterId: entry.characterId, price, fullPrice: entry.startingBid },
   };
 
-  const events: GameEvent[] = [
-    { type: 'lastPick:done', playerId, characterId: option.characterId, pricePaid: price },
-  ];
+  const chat = withSystemChat(
+    s0,
+    price === 0
+      ? `${player.name} erhält ${characterOf(s0, entry.characterId).name} gratis - der Rest der Kategorie.`
+      : `${player.name} erhält ${characterOf(s0, entry.characterId).name} zum Mindestpreis (${Math.round(price / 1_000_000)} Mio.).`,
+    now,
+  );
 
-  const ended = endCategory(s0, now);
-  return { ...ended, events: [...events, ...ended.events] };
+  const { state: s1, timer } = schedule(chat.state, now, TIMINGS.AUTO_ASSIGN);
+  return {
+    state: s1,
+    events: [
+      { type: 'auction:autoAssign', playerId, characterId: entry.characterId, price, fullPrice: entry.startingBid },
+      chat.event,
+    ],
+    timer,
+  };
 }
 
 /**
  * Deadlock backstop. If an entire deck cycle passes without a single bid, every
- * remaining player is simply dealt a free character. Price decay makes this
- * essentially unreachable - it exists so that "stuck" is impossible, not rare.
+ * remaining player is simply dealt a free character.
  */
 function forcedAllocation(state: GameState, now: number): Flow {
   const categoryId = categoryOf(state);
@@ -325,6 +338,7 @@ function forcedAllocation(state: GameState, now: number): Flow {
     rng,
     decks: { ...s0.decks, [categoryId]: deck },
     phase: 'forced_allocation',
+    auction: null,
     forced: { awards },
     consecutivePasses: 0,
   };
@@ -348,7 +362,7 @@ function endCategory(state: GameState, now: number): Flow {
   const events: GameEvent[] = [{ type: 'category:end', recap }];
 
   // No injection after the final category - that money could never be spent.
-  let s0: GameState = { ...state, recap, phase: 'category_end', auction: null, lastPick: null, forced: null };
+  let s0: GameState = { ...state, recap, phase: 'category_end', auction: null, autoAssign: null, forced: null };
   if (!isLastCategory) {
     const injected = applyInjection(s0);
     s0 = injected.state;
@@ -436,8 +450,7 @@ function revealNextColumn(state: GameState, now: number): Flow {
     reveal: { ...reveal, revealedColumns: columnIndex + 1, totals },
   };
 
-  const isLast = columnIndex + 1 >= state.categoryOrder.length;
-  const { state: s1, timer } = schedule(s0, now, isLast ? TIMINGS.REVEAL_COLUMN : TIMINGS.REVEAL_COLUMN);
+  const { state: s1, timer } = schedule(s0, now, TIMINGS.REVEAL_COLUMN);
 
   return {
     state: s1,
@@ -517,6 +530,14 @@ function handle(state: GameState, action: Action): ReduceResult {
       };
     }
 
+    case 'UPDATE_SETTINGS': {
+      if (state.phase !== 'lobby') return fail(state, action.playerId, 'Einstellungen sind nur in der Lobby änderbar.');
+      const player = playerOf(state, action.playerId);
+      if (!player?.isHost) return fail(state, action.playerId, 'Nur der Host kann die Einstellungen ändern.');
+      const settings = normaliseSettings(action.settings, state.settings);
+      return { state: { ...state, settings }, events: [{ type: 'settings:update', settings }], timer: null };
+    }
+
     case 'START_GAME': {
       if (state.phase !== 'lobby') return fail(state, action.playerId, 'Das Spiel läuft bereits.');
       const player = playerOf(state, action.playerId);
@@ -530,7 +551,7 @@ function handle(state: GameState, action: Action): ReduceResult {
 
     // -------------------------------------------------------------- auction
     case 'BID': {
-      if (state.phase !== 'auction_open' && state.phase !== 'auction_countdown') {
+      if (state.phase !== 'auction_open') {
         return fail(state, action.playerId, 'Gerade läuft keine Auktion.');
       }
       const auction = state.auction!;
@@ -564,33 +585,41 @@ function handle(state: GameState, action: Action): ReduceResult {
         return fail(state, action.playerId, 'Dafür reicht dein Geld nicht.');
       }
 
+      // A bid inside the hot window pushes the deadline back out to a full
+      // window, so a last-second snipe can always be answered. Earlier bids
+      // leave the clock alone.
+      const remaining = (state.deadline ?? action.now) - action.now;
+      const extended = remaining <= TIMINGS.HOT_WINDOW;
+      const deadline = extended ? action.now + TIMINGS.HOT_WINDOW : state.deadline!;
+
       const seq = state.seq + 1;
       const s0: GameState = {
         ...state,
         seq,
-        phase: 'auction_open',
+        deadline,
         auction: {
           ...auction,
           currentBid: amount,
           leaderId: action.playerId,
-          countdown: null,
+          // The situation changed - a previous "let's move on" consensus is void.
+          timeSkips: [],
           bids: [...auction.bids, { playerId: action.playerId, amount, seq }],
         },
       };
 
-      const events: GameEvent[] = [{ type: 'auction:bid', playerId: action.playerId, amount, seq }];
-      if (state.phase === 'auction_countdown') events.push({ type: 'auction:countdownCancelled' });
+      const events: GameEvent[] = [
+        { type: 'auction:bid', playerId: action.playerId, amount, seq, endsAt: deadline, extended },
+      ];
 
-      // Everyone else already skipped? Then this bid wins on the spot.
+      // Everyone else already passed? Then this bid wins on the spot.
       const settled = maybeResolveEarly(s0, action.now);
       if (settled) return { ...settled, events: [...events, ...settled.events] };
 
-      const { state: s1, timer } = schedule(s0, action.now, TIMINGS.SOFT_TIMER);
-      return { state: s1, events, timer };
+      return { state: s0, events, timer: extended ? { ms: TIMINGS.HOT_WINDOW } : null };
     }
 
     case 'SKIP': {
-      const skippable = state.phase === 'auction_reveal' || state.phase === 'auction_open' || state.phase === 'auction_countdown';
+      const skippable = state.phase === 'auction_reveal' || state.phase === 'auction_open';
       if (!skippable || !state.auction) return fail(state, action.playerId, 'Gerade läuft keine Auktion.');
 
       const auction = state.auction;
@@ -614,17 +643,67 @@ function handle(state: GameState, action: Action): ReduceResult {
       return { state: s0, events, timer: null };
     }
 
-    case 'LAST_PICK': {
-      if (state.phase !== 'last_pick' || !state.lastPick) {
-        return fail(state, action.playerId, 'Gerade läuft keine letzte Wahl.');
+    /**
+     * "Zeit überspringen": everyone at the table agreeing that the clock is just
+     * in the way cuts straight to the final window. Any single player can undo
+     * the consensus simply by bidding.
+     */
+    case 'SKIP_TIME': {
+      if (state.phase !== 'auction_open' || !state.auction) {
+        return fail(state, action.playerId, 'Gerade läuft keine Auktion.');
       }
-      if (state.lastPick.playerId !== action.playerId) {
-        return fail(state, action.playerId, 'Du bist nicht an der Reihe.');
-      }
-      if (!state.lastPick.options.some((o) => o.characterId === action.characterId)) {
-        return fail(state, action.playerId, 'Diese Karte steht nicht zur Wahl.');
-      }
-      return resolveLastPick(state, action.now, action.characterId);
+      const auction = state.auction;
+      if (!playerOf(state, action.playerId)) return fail(state, action.playerId, 'Spieler nicht gefunden.');
+      if (auction.timeSkips.includes(action.playerId)) return { state, events: NO_EVENTS, timer: null };
+
+      const timeSkips = [...auction.timeSkips, action.playerId];
+      const voters = state.players.filter((p) => p.connected);
+      const applied = voters.every((p) => timeSkips.includes(p.id));
+
+      const remaining = (state.deadline ?? action.now) - action.now;
+      const cut = applied && remaining > TIMINGS.HOT_WINDOW;
+
+      const s0: GameState = {
+        ...state,
+        auction: { ...auction, timeSkips },
+        deadline: cut ? action.now + TIMINGS.HOT_WINDOW : state.deadline,
+      };
+
+      return {
+        state: s0,
+        events: [
+          { type: 'auction:timeSkip', playerId: action.playerId, votes: timeSkips.length, needed: voters.length, applied },
+        ],
+        timer: cut ? { ms: TIMINGS.HOT_WINDOW } : null,
+      };
+    }
+
+    // ----------------------------------------------------------------- chat
+    case 'CHAT': {
+      const player = playerOf(state, action.playerId);
+      if (!player) return { state, events: NO_EVENTS, timer: null };
+      const text = action.text.trim().slice(0, RULES.CHAT_MAX_LENGTH);
+      if (!text) return { state, events: NO_EVENTS, timer: null };
+
+      const message: ChatMessage = {
+        id: state.seq + 1,
+        playerId: player.id,
+        name: player.name,
+        avatar: player.avatar,
+        text,
+        at: action.now,
+        kind: 'player',
+      };
+
+      return {
+        state: {
+          ...state,
+          seq: state.seq + 1,
+          chat: [...state.chat, message].slice(-RULES.CHAT_HISTORY),
+        },
+        events: [{ type: 'chat:message', message }],
+        timer: null,
+      };
     }
 
     // -------------------------------------------------------------- trading
@@ -733,9 +812,17 @@ function handle(state: GameState, action: Action): ReduceResult {
         return o;
       });
 
+      const from = playerOf(traded, offer.fromId)!;
+      const to = playerOf(traded, offer.toId)!;
+      const chat = withSystemChat(
+        { ...traded, trading: { ...traded.trading!, offers } },
+        `${from.name} und ${to.name} haben getauscht: ${characterOf(traded, offer.giveCharacterId).name} ⇄ ${characterOf(traded, offer.wantCharacterId).name}`,
+        action.now,
+      );
+
       return {
-        state: { ...traded, trading: { ...traded.trading!, offers } },
-        events: [{ type: 'trading:update', offer: updated }],
+        state: chat.state,
+        events: [{ type: 'trading:update', offer: updated }, chat.event],
         timer: null,
       };
     }
@@ -781,35 +868,13 @@ function tick(state: GameState, now: number): ReduceResult {
       return openBidding(state, now);
 
     case 'auction_open':
-      // Soft timer expired: start the dramatic countdown, or drop the character
-      // if nobody bid at all.
-      if (!state.auction?.leaderId) return passCharacter(state, now);
-      return {
-        state: { ...state, phase: 'auction_countdown', auction: { ...state.auction, countdown: TIMINGS.COUNTDOWN_FROM }, deadline: now + TIMINGS.COUNTDOWN_TICK },
-        events: [{ type: 'auction:countdown', value: TIMINGS.COUNTDOWN_FROM }],
-        timer: { ms: TIMINGS.COUNTDOWN_TICK },
-      };
-
-    case 'auction_countdown': {
-      const value = (state.auction?.countdown ?? 0) - 1;
-      if (value <= 0) return sellToLeader(state, now);
-      return {
-        state: { ...state, auction: { ...state.auction!, countdown: value }, deadline: now + TIMINGS.COUNTDOWN_TICK },
-        events: [{ type: 'auction:countdown', value }],
-        timer: { ms: TIMINGS.COUNTDOWN_TICK },
-      };
-    }
+      // The clock ran out: sell to the leader, or drop a character nobody wanted.
+      return state.auction?.leaderId ? sellToLeader(state, now) : passCharacter(state, now);
 
     case 'auction_sold':
     case 'auction_passed':
+    case 'auto_assign':
       return beginNextAuction(state, now);
-
-    case 'last_pick': {
-      // Timed out - take a random one of the three, under the same price rules.
-      const [index, rng] = nextInt(state.rng, 0, state.lastPick!.options.length - 1);
-      const choice = state.lastPick!.options[index];
-      return resolveLastPick({ ...state, rng }, now, choice.characterId);
-    }
 
     case 'forced_allocation':
       return endCategory(state, now);

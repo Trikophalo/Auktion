@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { RULES } from '@gla/shared';
+import { RULES, SETTINGS_BOUNDS, money } from '@gla/shared';
 import { useGame } from '../store/game';
 import { net } from '../net/socket';
+import { Chat } from '../components/Chat';
 
 const AVATARS = ['🏴‍☠️', '🐒', '🦊', '🐧', '🦁', '🐙', '🦈', '🐲', '🦅', '🐺', '🦝', '🐯'];
 
@@ -85,13 +86,18 @@ export function Lobby() {
             ))}
           </div>
 
+          <RoomSettings canEdit={me.isHost} />
+
+          <Chat variant="panel" />
+
           <div className="rules-digest">
             <h3>So wird gespielt</h3>
             <ol>
               <li>Jeder startet mit <b>1 Mrd. Berry</b> und braucht am Ende genau einen Charakter aus <b>10 Kategorien</b>.</li>
-              <li>Charaktere werden einzeln versteigert. Mindestschritt: <b>5 Mio.</b> Nach 10 Sekunden ohne Gebot läuft der Countdown.</li>
+              <li>Charaktere werden einzeln versteigert. Mindestschritt: <b>5 Mio.</b> In den letzten 10 Sekunden setzt jedes Gebot die Uhr wieder auf 10s.</li>
               <li>Jeder Charakter hat eine <b>geheime Punktzahl</b>. Teuer heißt nicht automatisch gut.</li>
-              <li>Nach jeder Kategorie gibt es <b>10-50 Mio.</b> extra. Nach Kategorie 3, 6 und 9 wird <b>gehandelt</b>.</li>
+              <li>Pro Kategorie gibt es <b>genau so viele Charaktere wie Spieler</b> - der Letzte bekommt automatisch den Rest.</li>
+              <li>Nach jeder Kategorie gibt es eine <b>Geldspritze</b>. Nach Kategorie 3, 6 und 9 wird <b>gehandelt</b>.</li>
               <li>Am Ende zählt nur die Summe der geheimen Punkte. Das beste Team gewinnt.</li>
             </ol>
           </div>
@@ -185,5 +191,79 @@ export function Lobby() {
         {error && <div className="error-line">{error}</div>}
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * Host-configurable room settings. Everyone sees the current values live; only
+ * the host can change them, so nobody is surprised by the rules mid-game.
+ */
+function RoomSettings({ canEdit }: { canEdit: boolean }) {
+  const settings = useGame((s) => s.state!.settings);
+  const b = SETTINGS_BOUNDS;
+
+  const minutes = (settings.auctionSeconds / 60).toFixed(settings.auctionSeconds % 60 === 0 ? 0 : 1);
+
+  return (
+    <div className={`room-settings ${canEdit ? '' : 'readonly'}`}>
+      <h3>⚙️ Einstellungen {!canEdit && <em>- nur der Host kann sie ändern</em>}</h3>
+
+      <label className="setting">
+        <span className="setting-head">
+          Zeit pro Auktion
+          <b>{minutes} Min.</b>
+        </span>
+        <input
+          type="range"
+          min={b.AUCTION_SECONDS_MIN}
+          max={b.AUCTION_SECONDS_MAX}
+          step={b.AUCTION_SECONDS_STEP}
+          value={settings.auctionSeconds}
+          disabled={!canEdit}
+          onChange={(e) => net.settings({ auctionSeconds: Number(e.target.value) })}
+        />
+        <span className="setting-hint">
+          Läuft die Zeit ab, gewinnt das Höchstgebot. Alle können gemeinsam „Zeit überspringen“ drücken.
+        </span>
+      </label>
+
+      <label className="setting">
+        <span className="setting-head">
+          Geldspritze pro Runde
+          <b>max. {money(settings.injectionMax)}</b>
+        </span>
+        <input
+          type="range"
+          min={b.INJECTION_MAX_MIN}
+          max={b.INJECTION_MAX_MAX}
+          step={b.INJECTION_MAX_STEP}
+          value={settings.injectionMax}
+          disabled={!canEdit}
+          onChange={(e) => net.settings({ injectionMax: Number(e.target.value) })}
+        />
+      </label>
+
+      <div className="setting">
+        <span className="setting-head">Verteilung</span>
+        <div className="mode-toggle">
+          <button
+            className={settings.injectionMode === 'random' ? 'selected' : ''}
+            disabled={!canEdit}
+            onClick={() => net.settings({ injectionMode: 'random' })}
+          >
+            🎲 Zufällig
+            <em>10 Mio. bis Maximum</em>
+          </button>
+          <button
+            className={settings.injectionMode === 'fixed' ? 'selected' : ''}
+            disabled={!canEdit}
+            onClick={() => net.settings({ injectionMode: 'fixed' })}
+          >
+            ⚖️ Gleich
+            <em>alle bekommen das Maximum</em>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

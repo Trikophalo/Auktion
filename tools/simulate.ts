@@ -34,7 +34,7 @@ const NAMES = Object.keys(STRATEGIES) as StrategyName[];
 interface Stats {
   prices: number[];
   viaAuction: number;
-  viaLastPick: number;
+  viaAuto: number;
   viaForced: number;
   leftover: number[];
   totals: number[];
@@ -50,7 +50,7 @@ function emptyStats(): Stats {
   return {
     prices: [],
     viaAuction: 0,
-    viaLastPick: 0,
+    viaAuto: 0,
     viaForced: 0,
     leftover: [],
     totals: [],
@@ -64,15 +64,24 @@ function emptyStats(): Stats {
 }
 
 /**
- * A bot's ceiling for the current character: it spreads what it has over the
- * categories it still needs, scaled by its aggression, and never bids past
- * what it owns.
+ * A bot's ceiling for the character currently on stage.
+ *
+ * Bots read the public starting bid as a quality signal (the same information a
+ * real player has - hidden scores are invisible), so they pay up for a headline
+ * character and pass on a filler one. The budget share keeps them from blowing
+ * everything in category one.
  */
 function willingness(state: GameState, playerId: string, aggression: number): number {
   const player = state.players.find((p) => p.id === playerId)!;
+  const auction = state.auction!;
   const remaining = state.categoryOrder.filter((c) => !player.roster[c]).length || 1;
-  const perCategory = player.money / remaining;
-  return Math.min(player.money, perCategory * aggression);
+  const budgetShare = (player.money / remaining) * 2.2;
+  // Leftover money scores nothing, so willingness climbs as the game runs out:
+  // by the final categories a rich player will happily overpay.
+  const progress = state.categoryIndex / Math.max(1, state.categoryOrder.length - 1);
+  const urgency = 1 + progress;
+  const worth = auction.originalBid * aggression * urgency;
+  return Math.min(player.money, worth, budgetShare);
 }
 
 function runGame(seed: number, playerCount: number, stats: Stats): void {
@@ -101,7 +110,7 @@ function runGame(seed: number, playerCount: number, stats: Stats): void {
   while (state.phase !== 'game_over' && guard++ < 60_000) {
     const phase = state.phase;
 
-    if (phase === 'auction_open' || phase === 'auction_countdown') {
+    if (phase === 'auction_open') {
       const auction = state.auction!;
       const category = state.categoryOrder[state.categoryIndex];
       const min = auction.currentBid === 0 ? auction.startingBid : auction.currentBid + RULES.BID_STEP;
@@ -116,14 +125,6 @@ function runGame(seed: number, playerCount: number, stats: Stats): void {
         else dispatch({ type: 'SKIP', playerId: actor.id, now });
         continue;
       }
-    }
-
-    if (phase === 'last_pick') {
-      const options = state.lastPick!.options;
-      // Take the cheapest available option.
-      const choice = [...options].sort((a, b) => a.startingBid - b.startingBid)[0];
-      dispatch({ type: 'LAST_PICK', playerId: state.lastPick!.playerId, characterId: choice.characterId, now });
-      continue;
     }
 
     if (phase === 'trading') {
@@ -156,7 +157,7 @@ function runGame(seed: number, playerCount: number, stats: Stats): void {
         stats.viaAuction++;
         stats.prices.push(owned.pricePaid);
         stats.auctions++;
-      } else if (owned.via === 'last_pick') stats.viaLastPick++;
+      } else if (owned.via === 'auto') stats.viaAuto++;
       else if (owned.via === 'forced') stats.viaForced++;
     }
   }
@@ -187,7 +188,7 @@ function main() {
   for (let i = 0; i < GAMES; i++) runGame(i * 7919 + 13, PLAYERS, stats);
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
 
-  const picks = stats.viaAuction + stats.viaLastPick + stats.viaForced;
+  const picks = stats.viaAuction + stats.viaAuto + stats.viaForced;
 
   console.log('── Auktionspreise ─────────────────────────────');
   console.log(`   Durchschnitt      ${mio(mean(stats.prices))}`);
@@ -197,7 +198,7 @@ function main() {
 
   console.log('\n── Wie Charaktere erworben wurden ─────────────');
   console.log(`   Auktion           ${pct(stats.viaAuction, picks)}`);
-  console.log(`   Letzte Wahl       ${pct(stats.viaLastPick, picks)}`);
+  console.log(`   Auto-Zuteilung    ${pct(stats.viaAuto, picks)}`);
   console.log(`   Zwangszuteilung   ${pct(stats.viaForced, picks)}   ← sollte ~0% sein`);
   console.log(`   Durchgereichte Charaktere: ${(stats.passes / GAMES).toFixed(1)} pro Spiel`);
 

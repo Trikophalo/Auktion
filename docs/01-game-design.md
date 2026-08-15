@@ -30,8 +30,8 @@ strings in a single locale file so English can be added trivially.
   exactly one character at game end.
 - Category order: **shuffled per game**, except *Legendäre Kapitäne* is always the first
   category (strong opening hook; everyone understands the game immediately).
-- Per category, a **draw deck** is built by shuffling that category's full character pool
-  (12–18 characters, see doc 02). Characters are drawn from the top.
+- Per category, a **draw deck** of **exactly one character per player** is drawn at random
+  from that category's full pool (12–18 characters, see doc 02).
 
 Randomization uses a per-game server seed (Fisher-Yates). The seed is logged so a game
 can be reproduced for debugging.
@@ -63,8 +63,8 @@ category. Players who already filled the slot are spectators for the rest of the
 could win a second character for a slot they can't use, or grief risk-free.
 
 Consequence (intended strategy): late auctions in a category have fewer bidders, so
-prices drop — waiting is a real strategy, but you risk being left with the dregs or the
-Last Pick (see §5).
+prices drop — waiting is a real strategy, but since the deck holds exactly one character
+per player, waiting also means being handed whatever nobody else wanted (see §5).
 
 ### 3.3 Bids
 
@@ -84,16 +84,33 @@ Last Pick (see §5).
 
 ### 3.4 Timer
 
-- **Soft timer:** after every accepted bid (and after bidding opens), a 10-second
-  no-activity window runs. It is displayed subtly (thin progress ring), not as a big
-  number — the drama is reserved for the countdown.
-- **Final countdown:** if 10s pass with no new bid, a big **5 → 4 → 3 → 2 → 1 → 0**
-  countdown takes over the screen (heartbeat sound, vignette pulse). Any valid bid
-  cancels the countdown and restarts the 10s soft timer.
+Every auction runs on a single clock whose length the host sets in the lobby
+(**1–5 minutes**, default 2). Three rules shape it:
+
+- **The clock runs down** regardless of bidding; a bid placed early does *not* extend it.
+  The remaining time is shown as mm:ss plus a ring around the portrait.
+- **Hot window (final 10s):** a bid landing inside the last 10 seconds pushes the deadline
+  back out to a full 10 seconds. A snipe at 0:03 gives *everyone* 10 seconds to answer, so
+  no auction can be stolen unanswerably. This can repeat indefinitely — a real bidding war
+  simply keeps the auction alive.
+- **Final 5 seconds:** the big **5 → 4 → 3 → 2 → 1** takes over the screen. Bidding stays
+  fully enabled during it — that is the point of the hot window, and the overlay is
+  click-through with the bid bar untouched underneath.
 - At 0: **highest bidder wins** — hammer slam, "VERKAUFT!", the card flies into the
   winner's board cell, the price is deducted with an animated counter.
+- If the clock expires with **no bid at all**, the character is passed (§4).
 
-### 3.5 SKIP
+### 3.5 "Zeit überspringen" (skip time)
+
+A 5-minute clock is only fun while people are actually deciding. Every player has a
+**skip-time button**; when **all connected players** have pressed it, the clock jumps
+straight to the final 10 seconds. It is a table-wide vote, not a majority: one player who
+is still thinking keeps the clock running.
+
+Any new bid **voids the consensus** (the votes reset), because the situation everyone
+agreed on has changed.
+
+### 3.6 SKIP
 
 - SKIP declares "I'm out **for this character**" — it is final for the current auction
   (bids only go up, so there is nothing to come back for) and shown publicly on the
@@ -128,24 +145,25 @@ tension the game wants (§15 of the brief).
 Invariant to guarantee: **every player ends the game with exactly one character in every
 category**, regardless of balances or behavior. Three layered mechanisms:
 
-### 5.1 Pool sizing
-Every category pool has **≥ 12 characters**; max players is 6. Characters only leave the
-deck when bought. So the deck can never run out before every player has a slot filled:
-worst case 6 purchases from 12+ characters.
+### 5.1 Deck sizing: exactly one character per player
+Each category deals **exactly as many characters as there are players**, drawn at random
+from that category's much larger pool (12–18). Every character in the deck therefore ends
+up on somebody's board, and "one player left" always means "one character left" — the two
+are tied together by construction.
 
-### 5.2 Last Pick (exactly one eligible player left)
-An auction with a single bidder is boring, so when only **one** player still needs the
-category, the flow switches to **Last Pick**:
+This is what makes the endgame of a category tense: there is no spare to fall back on, and
+waiting means taking whatever the others did not want.
 
-1. Three random characters from the remaining deck are presented face-up
-   (with starting bids; fewer than 3 only if the deck is smaller).
-2. The player picks one within **20 seconds** and pays
-   `min(startingBid, balance)` — i.e. **free if broke** (this implements the brief's
-   "receive it for free" rule, generalized to "pay what you can").
-3. On timeout, a random one of the three is auto-assigned under the same payment rule.
+### 5.2 Automatic hand-over (exactly one eligible player left)
+An auction with a single bidder is pointless, so when only **one** player still needs the
+category, the leftover character is **handed to them automatically** at its current
+starting price, capped at their balance:
 
-Last Pick is staged as its own mini-moment ("LETZTE WAHL!") — being forced into it is a
-visible, slightly embarrassing, funny outcome, which is exactly the tone the game wants.
+    price = min(startingBid, balance)     → free if broke
+
+It plays as a short ceremony ("LETZTER CHARAKTER DER KATEGORIE" → card → arrow → player →
+price), not a dialog. Being the one who has to take the leftovers is a visible, slightly
+embarrassing outcome — exactly the tone the game wants.
 
 ### 5.3 Forced allocation (deadlock backstop)
 If ≥ 2 eligible players remain and a **full deck cycle** passes in which every character
@@ -169,10 +187,11 @@ is treated as skipping — see §10).
 CATEGORY_START (banner, deck size shown)
   └─ repeat: AUCTION (reveal → bidding → sold / all-skip cycle)
        until every player owns a character in this category
-       (switching to LAST_PICK when 1 eligible player remains,
+       (AUTO-ZUTEILUNG when 1 eligible player remains,
         ZWANGSZUTEILUNG if the deadlock backstop fires)
 CATEGORY_END (mini-recap: who paid what this category)
-MONEY_INJECTION (each player +10M–50M, uniform random, independent rolls;
+MONEY_INJECTION (host-configured: a ceiling of 10M–100M, paid either as an
+                 independent random roll per player or flat to everyone;
                  animated "+35.000.000" flying into each HUD)
 TRADING_PHASE (only after categories 3, 6, 9 — see §8)
 → next category, or FINAL_REVEAL after category 10
@@ -253,6 +272,24 @@ Target: forced allocation < 0.1% of categories; median end-game leftover cash 50
 
 ---
 
+## 9a. Lobby settings (host)
+
+| Setting | Range | Default | Effect |
+| --- | --- | --- | --- |
+| Zeit pro Auktion | 60–300s, 30s steps | 120s | Length of every auction clock (§3.4) |
+| Geldspritze pro Runde | 10M–100M, 5M steps | 50M | Ceiling of the post-category injection |
+| Verteilung | zufällig / gleich | zufällig | Random rolls 10M…ceiling per player; fixed pays the ceiling to everyone |
+
+Settings are live-synced to every player in the lobby and locked once the game starts, so
+nobody is surprised by the rules mid-game. All values are clamped server-side.
+
+## 9b. Chat
+
+A chat is available in the lobby (panel) and in-game (collapsible dock with an unread
+badge), with one-tap quick phrases. The engine writes **system lines** into the same feed
+("Ruffy ersteigert Shanks für 140 Mio.", trades, free hand-overs), so it doubles as a game
+log that survives a reconnect.
+
 ## 10. Multiplayer conduct rules
 
 - **Disconnects:** the seat is held for the whole game. A disconnected player is
@@ -260,8 +297,9 @@ Target: forced allocation < 0.1% of categories; median end-game leftover cash 50
   auto-resolves Last Pick randomly; injections still accrue. Reconnection (session token)
   restores the seat with a full state snapshot at any time.
 - **AFK/griefing:** identical treatment — every decision point has a server-side timeout
-  that resolves to the passive option (skip / auto-pick / offer expires). The game always
-  advances.
+  that resolves to the passive option (skip / offer expires). The game always advances.
+  Offline players are also excluded from the skip-time vote, so one dropped connection
+  cannot block the table.
 - **Host:** the room creator starts the game and can kick in the lobby only. Mid-game
   there is no kick (a kicked player's board would break the invariant); an abandoned
   seat just runs on timeouts. If the host disconnects, host rights migrate to the next
@@ -274,16 +312,16 @@ Target: forced allocation < 0.1% of categories; median end-game leftover cash 50
 | # | Case | Resolution |
 | --- | --- | --- |
 | 1 | Two bids arrive "simultaneously" | Server serializes per room; first accepted wins, second is validated against the *new* state and usually rejected ("Überboten!") with one-tap re-raise. Quick-bids are relative, so they almost never reject. |
-| 2 | Bid arrives during countdown 0-tick | Bids are accepted until the server emits `AUCTION_RESOLVED`. A bid in the same tick as resolution is rejected as late (deterministic server ordering). |
+| 2 | Bid arrives during the final countdown | Accepted, and it resets the clock to 10s (§3.4). Bidding is never disabled while the auction is open; only the server's expiry tick closes it. |
 | 3 | All eligible players skip, no bid | Instant resolve; character back into deck at random position, price −25% (floor 10M). |
 | 4 | All but high bidder skip | Instant "VERKAUFT!" (3s hammer), no countdown. |
-| 5 | Only one eligible player left in category | Last Pick (§5.2) — no solo auctions. |
+| 5 | Only one eligible player left in category | Automatic hand-over at min(price, balance) (§5.2) — no solo auctions. |
 | 6 | Full deck cycle with zero sales | Forced allocation (§5.3), free. |
-| 7 | Player balance 0 with unfilled slots | Can still skip into Last Pick / forced allocation → free character. Never stuck. |
+| 7 | Player balance 0 with unfilled slots | Still receives the automatic hand-over (free at 0 balance) or forced allocation. Never stuck. |
 | 8 | Bid > balance | Rejected client- and server-side. |
 | 9 | High bidder tries to skip | Impossible — bids are binding, UI hides SKIP while leading. |
 | 10 | Trade accepted after balance changed | Re-validated at accept; fails gracefully with notice. |
 | 11 | Trade would leave a category slot empty | Impossible by construction — only same-category swaps exist. |
 | 12 | Player disconnects mid-auction while high bidder | Their bid stands (binding). If they win, they pay and the card is placed normally. |
-| 13 | Deck exhausted mid-category | Cannot happen (§5.1) — pool ≥ 12, ≤ 6 buyers, skips return to deck. |
+| 13 | Deck exhausted mid-category | Cannot happen (§5.1) — the deck holds exactly one character per player and skips return to it. |
 | 14 | Duplicate characters across categories | Forbidden by data model: each character belongs to exactly one category (see doc 02 for the assignment rules, e.g. Mihawk is a Schwertkämpfer, not a Warlord). |

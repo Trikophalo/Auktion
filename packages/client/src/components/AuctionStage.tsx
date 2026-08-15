@@ -17,9 +17,10 @@ export function AuctionStage() {
   const remaining = useCountdown(state.deadline);
 
   const leader = state.players.find((p) => p.id === auction?.leaderId);
-  const isCountdown = state.phase === 'auction_countdown';
-  const softProgress =
-    state.phase === 'auction_open' ? Math.max(0, Math.min(1, remaining / TIMINGS.SOFT_TIMER)) : 1;
+  const isOpen = state.phase === 'auction_open';
+  const hot = isOpen && remaining <= TIMINGS.HOT_WINDOW;
+  const total = state.settings.auctionSeconds * 1000;
+  const timeProgress = isOpen ? Math.max(0, Math.min(1, remaining / total)) : 1;
 
   if (!auction) {
     return (
@@ -33,7 +34,7 @@ export function AuctionStage() {
   const discounted = auction.timesPassed > 0;
 
   return (
-    <aside className={`stage ${isCountdown ? 'panic' : ''}`} style={{ '--accent': category.color } as React.CSSProperties}>
+    <aside className={`stage ${hot ? 'panic' : ''}`} style={{ '--accent': category.color } as React.CSSProperties}>
       <header className="stage-head">
         <span className="stage-kicker">Aktuelle Auktion</span>
         <span className="stage-category">
@@ -68,15 +69,15 @@ export function AuctionStage() {
           transition={{ type: 'spring', stiffness: 200, damping: 20 }}
         >
           <CharacterArt character={character} accent={category.color} pixelLevel={pixelLevel} width={320} height={380} />
-          {softProgress < 1 && (
-            <svg className="soft-ring" viewBox="0 0 100 100" aria-hidden>
+          {isOpen && (
+            <svg className={`soft-ring ${hot ? 'hot' : ''}`} viewBox="0 0 100 100" aria-hidden>
               <circle className="soft-ring-track" cx="50" cy="50" r="47" />
               <circle
                 className="soft-ring-bar"
                 cx="50"
                 cy="50"
                 r="47"
-                style={{ strokeDashoffset: 295 * (1 - softProgress) }}
+                style={{ strokeDashoffset: 295 * (1 - timeProgress) }}
               />
             </svg>
           )}
@@ -93,6 +94,20 @@ export function AuctionStage() {
           )}
         </div>
       </div>
+
+      {isOpen && (
+        <div className={`auction-clock ${hot ? 'hot' : ''}`}>
+          <span className="clock-label">{hot ? 'Letzte Sekunden' : 'Verbleibende Zeit'}</span>
+          <span className="clock-value">{formatClock(remaining)}</span>
+          {(auction.timeSkips.length > 0 || hot) && (
+            <span className="clock-note">
+              {hot
+                ? 'Jedes Gebot setzt auf 10s zurück'
+                : `${auction.timeSkips.length}/${state.players.filter((p) => p.connected).length} wollen weiter`}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="bid-display">
         <span className="label">Aktuelles Gebot</span>
@@ -140,6 +155,13 @@ export function AuctionStage() {
   );
 }
 
+function formatClock(ms: number): string {
+  const total = Math.ceil(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes > 0 ? `${minutes}:${String(seconds).padStart(2, '0')}` : `${seconds}s`;
+}
+
 function StageIdle() {
   const state = useGame((s) => s.state)!;
   const theme = useGame((s) => s.theme)!;
@@ -148,7 +170,7 @@ function StageIdle() {
   const text: Record<string, string> = {
     category_intro: 'Die nächste Kategorie wird vorbereitet…',
     category_end: 'Kategorie abgeschlossen!',
-    last_pick: 'Letzte Wahl läuft…',
+    auto_assign: 'Der letzte Charakter wird zugeteilt…',
     forced_allocation: 'Zwangszuteilung läuft…',
     trading: 'Marktphase - jetzt wird gehandelt!',
   };
@@ -158,7 +180,7 @@ function StageIdle() {
       <div className="idle-icon">{category?.icon ?? '⚓'}</div>
       <h2>{category?.title}</h2>
       <p>{text[state.phase] ?? 'Gleich geht es weiter…'}</p>
-      <div className="deck-info">Noch {state.deckSize} Charaktere im Stapel</div>
+      <div className="deck-info">Noch {state.deckSize} von {state.players.length} Charakteren</div>
     </div>
   );
 }

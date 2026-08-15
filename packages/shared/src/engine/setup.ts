@@ -1,5 +1,5 @@
 import type { DeckEntry, GameState, Player, ThemePack } from '../types.js';
-import { RULES } from '../constants.js';
+import { DEFAULT_SETTINGS, RULES } from '../constants.js';
 import { createRng, shuffle, randomSeed } from '../rng.js';
 import { getTheme, validateTheme } from '../theme/index.js';
 
@@ -13,16 +13,18 @@ export function createGame(roomCode: string, themeId = 'one-piece', seed = rando
     roomCode,
     themeId,
     phase: 'lobby',
+    settings: { ...DEFAULT_SETTINGS },
     rng: createRng(seed),
     players: [],
     categoryOrder: [],
     categoryIndex: 0,
     decks: {},
     auction: null,
-    lastPick: null,
+    autoAssign: null,
     forced: null,
     trading: null,
     reveal: null,
+    chat: [],
     consecutivePasses: 0,
     recap: [],
     lastInjection: [],
@@ -51,7 +53,12 @@ export function makePlayer(id: string, name: string, avatar: string, isHost: boo
 }
 
 /**
- * Builds the shuffled category order and per-category draw decks.
+ * Builds the shuffled category order and the per-category decks.
+ *
+ * Each deck holds **exactly one character per player**, drawn at random from
+ * that category's much larger pool. That is what makes the endgame of every
+ * category tense: the last player standing gets whatever is left over, and
+ * there is never a spare character to fall back on.
  *
  * The opening category is pinned (captains) because it is the clearest possible
  * introduction to the game; the remaining nine are shuffled per game so no two
@@ -59,6 +66,7 @@ export function makePlayer(id: string, name: string, avatar: string, isHost: boo
  */
 export function buildBoard(state: GameState): GameState {
   const theme: ThemePack = getTheme(state.themeId);
+  const playerCount = state.players.length;
   let rng = state.rng;
 
   const rest = theme.categories.map((c) => c.id).filter((id) => id !== theme.openingCategory);
@@ -73,7 +81,7 @@ export function buildBoard(state: GameState): GameState {
     const pool = theme.characters.filter((c) => c.category === categoryId);
     const [shuffled, nextRng] = shuffle(pool, rng);
     rng = nextRng;
-    decks[categoryId] = shuffled.map((c) => ({
+    decks[categoryId] = shuffled.slice(0, playerCount).map((c) => ({
       characterId: c.id,
       startingBid: c.startingBid,
       timesPassed: 0,

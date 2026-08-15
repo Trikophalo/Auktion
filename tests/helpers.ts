@@ -84,7 +84,7 @@ export function drive(
   while (!done(harness.state) && guard++ < 20_000) {
     const s = harness.state;
 
-    if (s.phase === 'auction_open' || s.phase === 'auction_countdown') {
+    if (s.phase === 'auction_open') {
       const cat = s.categoryOrder[s.categoryIndex];
       const auction = s.auction!;
       const actor = s.players.find(
@@ -105,16 +105,6 @@ export function drive(
         harness.act('SKIP', skipper.id);
         continue;
       }
-    }
-
-    if (s.phase === 'last_pick') {
-      harness.dispatch({
-        type: 'LAST_PICK',
-        playerId: s.lastPick!.playerId,
-        characterId: s.lastPick!.options[0].characterId,
-        now: harness.now,
-      });
-      continue;
     }
 
     harness.tick();

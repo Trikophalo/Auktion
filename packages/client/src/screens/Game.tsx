@@ -5,7 +5,8 @@ import { isMuted, setMuted } from '../store/sound';
 import { Board } from '../components/Board';
 import { AuctionStage } from '../components/AuctionStage';
 import { BidBar } from '../components/BidBar';
-import { CategoryEndOverlay, Countdown, ForcedOverlay, LastPickOverlay } from '../components/Overlays';
+import { AutoAssignOverlay, CategoryEndOverlay, Countdown, ForcedOverlay } from '../components/Overlays';
+import { Chat } from '../components/Chat';
 import { Trading } from './Trading';
 
 type Tab = 'auction' | 'board';
@@ -17,7 +18,7 @@ export function Game() {
   const [muted, setMutedState] = useState(isMuted());
 
   const category = theme.categories.find((c) => c.id === state.categoryOrder[state.categoryIndex]);
-  const isBidding = state.phase === 'auction_open' || state.phase === 'auction_countdown' || state.phase === 'auction_reveal';
+  const isBidding = state.phase === 'auction_open' || state.phase === 'auction_reveal';
 
   return (
     <motion.div className="screen game" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -74,9 +75,11 @@ export function Game() {
 
       {isBidding && <BidBar />}
 
+      <Chat />
+
       <Countdown />
       <AnimatePresence>
-        <LastPickOverlay key="lastpick" />
+        <AutoAssignOverlay key="assign" />
         <ForcedOverlay key="forced" />
         <CategoryEndOverlay key="recap" />
         {state.phase === 'trading' && <Trading key="trading" />}

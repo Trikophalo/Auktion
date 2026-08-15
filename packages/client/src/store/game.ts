@@ -11,7 +11,7 @@ export interface Toast {
 /** A short-lived cinematic overlay (sold, passed, injection, ...). */
 export interface Stinger {
   id: number;
-  kind: 'sold' | 'passed' | 'injection' | 'trade' | 'forced' | 'category';
+  kind: 'sold' | 'passed' | 'injection' | 'trade' | 'forced' | 'category' | 'time';
   title: string;
   detail?: string;
 }
@@ -27,17 +27,24 @@ interface GameStore {
   lastEvents: GameEvent[];
   /** Injection amounts currently flying into the HUDs. */
   injections: Record<string, number>;
-  /** Bid pulse: playerId of the most recent bidder (drives the flash). */
   lastBidder: string | null;
+  /** serverNow - Date.now(), so countdowns are immune to a skewed local clock. */
+  clockOffset: number;
+  /** Messages arrived while the chat was collapsed. */
+  unreadChat: number;
+  chatOpen: boolean;
 
   setConnected(v: boolean): void;
   applySnapshot(state: ClientState, theme: ThemeInfo, catalog: CharacterPublic[]): void;
   applyUpdate(state: ClientState, events: GameEvent[]): void;
   pushToast(t: Omit<Toast, 'id'>): void;
   dismissToast(id: number): void;
+  setChatOpen(open: boolean): void;
   character(id: string | undefined): CharacterPublic | undefined;
   me(): ClientState['players'][number] | undefined;
   categoryLabel(id: string): string;
+  /** Server-aligned wall clock. */
+  now(): number;
 }
 
 let toastId = 0;
@@ -53,11 +60,19 @@ export const useGame = create<GameStore>((set, get) => ({
   lastEvents: [],
   injections: {},
   lastBidder: null,
+  clockOffset: 0,
+  unreadChat: 0,
+  chatOpen: false,
 
   setConnected: (v) => set({ connected: v }),
 
   applySnapshot: (state, theme, catalog) =>
-    set({ state, theme, characters: new Map(catalog.map((c) => [c.id, c])) }),
+    set({
+      state,
+      theme,
+      characters: new Map(catalog.map((c) => [c.id, c])),
+      clockOffset: state.serverNow - Date.now(),
+    }),
 
   applyUpdate: (state, events) => {
     const prev = get().state;
@@ -67,7 +82,7 @@ export const useGame = create<GameStore>((set, get) => ({
       import('../net/socket').then((m) => m.net.resync());
     }
 
-    set({ state, lastEvents: events });
+    set({ state, lastEvents: events, clockOffset: state.serverNow - Date.now() });
     for (const event of events) handleEvent(event, set, get);
   },
 
@@ -79,6 +94,8 @@ export const useGame = create<GameStore>((set, get) => ({
 
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
+  setChatOpen: (open) => set({ chatOpen: open, unreadChat: open ? 0 : get().unreadChat }),
+
   character: (id) => (id ? get().characters.get(id) : undefined),
 
   me: () => {
@@ -87,6 +104,8 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   categoryLabel: (id) => get().theme?.categories.find((c) => c.id === id)?.label ?? id,
+
+  now: () => Date.now() + get().clockOffset,
 }));
 
 type Setter = (partial: Partial<GameStore> | ((s: GameStore) => Partial<GameStore>)) => void;
@@ -125,14 +144,26 @@ function handleEvent(event: GameEvent, set: Setter, get: () => GameStore) {
       set({ lastBidder: event.playerId });
       sfx.bid(store.state?.auction?.bids.length ?? 0);
       if (event.playerId !== store.state?.you) {
-        store.pushToast({ kind: 'bid', text: `${nameOf(event.playerId)} bietet mit!` });
+        store.pushToast({
+          kind: 'bid',
+          // A bid inside the hot window buys everyone another 10 seconds.
+          text: event.extended
+            ? `${nameOf(event.playerId)} bietet in letzter Sekunde - 10s mehr!`
+            : `${nameOf(event.playerId)} bietet mit!`,
+        });
       }
       break;
     }
 
-    case 'auction:countdown':
-      sfx.tick(event.value);
+    case 'auction:timeSkip': {
+      if (event.applied) {
+        sfx.whoosh();
+        showStinger(set, { kind: 'time', title: 'ZEIT ÜBERSPRUNGEN', detail: 'Alle sind bereit - noch 10 Sekunden!' }, 2000);
+      } else {
+        store.pushToast({ kind: 'info', text: `${nameOf(event.playerId)} will weiter (${event.votes}/${event.needed})` });
+      }
       break;
+    }
 
     case 'auction:sold': {
       sfx.hammer();
@@ -151,6 +182,10 @@ function handleEvent(event: GameEvent, set: Setter, get: () => GameStore) {
         title: 'NIEMAND WILL IHN',
         detail: `${charName(event.characterId)} kommt später günstiger zurück`,
       }, 2200);
+      break;
+
+    case 'auction:autoAssign':
+      sfx.coins();
       break;
 
     case 'forced:allocate':
@@ -186,6 +221,13 @@ function handleEvent(event: GameEvent, set: Setter, get: () => GameStore) {
         store.pushToast({ kind: 'error', text: 'Dein Angebot wurde abgelehnt.' });
       }
       break;
+
+    case 'chat:message': {
+      const isMine = event.message.playerId === store.state?.you;
+      if (!isMine && event.message.kind === 'player') sfx.notify();
+      if (!get().chatOpen && !isMine) set((s) => ({ unreadChat: s.unreadChat + 1 }));
+      break;
+    }
 
     case 'reveal:column':
       sfx.reveal();

@@ -1,4 +1,4 @@
-import type { CharacterPublic, GameEvent } from './types.js';
+import type { CharacterPublic, GameEvent, GameSettings } from './types.js';
 import type { ClientState, ThemeInfo } from './view.js';
 
 /**
@@ -21,12 +21,15 @@ export interface ClientToServer {
   'room:rejoin': (payload: { code: string; token: string }, ack: (r: JoinResult) => void) => void;
   'room:leave': () => void;
   'lobby:ready': (payload: { ready: boolean }) => void;
+  'lobby:settings': (payload: Partial<GameSettings>) => void;
   'game:start': () => void;
   /** Relative "+5M" intent - immune to races by construction. */
   'auction:quickBid': () => void;
   'auction:bid': (payload: { amount: number }) => void;
   'auction:skip': () => void;
-  'lastPick:choose': (payload: { characterId: string }) => void;
+  /** Vote to cut the remaining auction time down to the final window. */
+  'auction:skipTime': () => void;
+  'chat:send': (payload: { text: string }) => void;
   'trade:offer': (payload: {
     toId: string;
     giveCharacterId: string;

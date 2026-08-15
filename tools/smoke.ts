@@ -102,7 +102,7 @@ async function main() {
     if (state.phase === 'game_over') break;
 
     // --- act on behalf of every client -----------------------------------
-    if (state.phase === 'auction_open' || state.phase === 'auction_countdown') {
+    if (state.phase === 'auction_open') {
       const auction = state.auction!;
       const cat = state.categoryOrder[state.categoryIndex];
       const min = auction.currentBid === 0 ? auction.startingBid : auction.currentBid + 5_000_000;
@@ -116,12 +116,6 @@ async function main() {
         await wait(40);
         break; // one action per loop keeps the auction readable
       }
-    }
-
-    if (state.phase === 'last_pick' && state.lastPick) {
-      const picker = clients.find((c) => c.id === state.lastPick!.playerId);
-      picker?.socket.emit('lastPick:choose', { characterId: state.lastPick.options[0].characterId });
-      await wait(120);
     }
 
     if (state.phase === 'trading') {

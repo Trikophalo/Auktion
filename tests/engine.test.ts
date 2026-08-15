@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   RULES,
+  TIMINGS,
   createGame,
   getTheme,
   reduce,
@@ -158,35 +159,63 @@ describe('bidding rules', () => {
 });
 
 describe('auction resolution', () => {
-  it('runs the countdown and sells to the highest bidder', () => {
+  it('runs the configured clock and sells to the highest bidder when it expires', () => {
     const h = new Harness(['A', 'B', 'C']);
     h.start();
     h.tickUntil((s) => s.phase === 'auction_open');
     const start = h.state.auction!.startingBid;
     const characterId = h.state.auction!.characterId;
+
+    // The auction runs for exactly the configured duration.
+    const openedAt = h.now;
+    expect(h.state.deadline).toBe(openedAt + h.state.settings.auctionSeconds * 1000);
+
     h.act('BID', 'p0', start);
-
-    h.tick(); // soft timer -> countdown
-    expect(h.state.phase).toBe('auction_countdown');
-    expect(h.state.auction!.countdown).toBe(5);
-
-    h.tickUntil((s) => s.phase === 'auction_sold');
+    h.tick(); // clock expires
+    expect(h.state.phase).toBe('auction_sold');
     expect(h.player('p0').roster[h.category]?.characterId).toBe(characterId);
     expect(h.player('p0').money).toBe(RULES.START_MONEY - start);
   });
 
-  it('cancels the countdown when someone bids during it', () => {
+  it('leaves the clock alone for a bid placed well before the end', () => {
+    const h = new Harness(['A', 'B']);
+    h.start();
+    h.tickUntil((s) => s.phase === 'auction_open');
+    const deadline = h.state.deadline;
+
+    h.act('BID', 'p0', 'quick');
+    expect(h.state.deadline).toBe(deadline);
+    expect(h.took('auction:bid').some((e) => e.type === 'auction:bid' && e.extended)).toBe(false);
+  });
+
+  it('gives everyone 10 more seconds when a bid lands in the final seconds', () => {
     const h = new Harness(['A', 'B']);
     h.start();
     h.tickUntil((s) => s.phase === 'auction_open');
     h.act('BID', 'p0', 'quick');
-    h.tick();
-    expect(h.state.phase).toBe('auction_countdown');
 
+    // Jump to 3 seconds before the end - the classic snipe.
+    h.now = h.state.deadline! - 3_000;
     h.act('BID', 'p1', 'quick');
+
     expect(h.state.phase).toBe('auction_open');
-    expect(h.state.auction!.countdown).toBeNull();
-    expect(h.took('auction:countdownCancelled').length).toBe(1);
+    expect(h.state.deadline).toBe(h.now + TIMINGS.HOT_WINDOW);
+    const extended = h.took('auction:bid').filter((e) => e.type === 'auction:bid' && e.extended);
+    expect(extended.length).toBe(1);
+  });
+
+  it('keeps extending as long as players keep sniping', () => {
+    const h = new Harness(['A', 'B']);
+    h.start();
+    h.tickUntil((s) => s.phase === 'auction_open');
+    h.act('BID', 'p0', 'quick');
+
+    for (let i = 0; i < 5; i++) {
+      h.now = h.state.deadline! - 1_000;
+      h.act('BID', i % 2 === 0 ? 'p1' : 'p0', 'quick');
+      expect(h.state.phase).toBe('auction_open');
+      expect(h.state.deadline).toBe(h.now + TIMINGS.HOT_WINDOW);
+    }
   });
 
   it('sells immediately once everyone but the leader has skipped', () => {
@@ -226,7 +255,7 @@ describe('auction resolution', () => {
     const id = h.state.auction!.characterId;
 
     for (let i = 0; i < 12; i++) {
-      if (h.state.phase !== 'auction_open') h.tickUntil((s) => s.phase === 'auction_open' || s.phase === 'last_pick' || s.phase === 'forced_allocation');
+      if (h.state.phase !== 'auction_open') h.tickUntil((s) => s.phase === 'auction_open' || s.phase === 'auto_assign' || s.phase === 'forced_allocation');
       if (h.state.phase !== 'auction_open') break;
       h.act('SKIP', 'p0');
       h.act('SKIP', 'p1');
@@ -254,6 +283,121 @@ describe('auction resolution', () => {
   });
 });
 
+describe('time skip vote', () => {
+  function openAuction(names = ['A', 'B', 'C']) {
+    const h = new Harness(names);
+    h.start();
+    h.tickUntil((s) => s.phase === 'auction_open');
+    return h;
+  }
+
+  it('does nothing until every connected player has voted', () => {
+    const h = openAuction();
+    const deadline = h.state.deadline;
+
+    h.dispatch({ type: 'SKIP_TIME', playerId: 'p0', now: h.now });
+    expect(h.state.deadline).toBe(deadline);
+    h.dispatch({ type: 'SKIP_TIME', playerId: 'p1', now: h.now });
+    expect(h.state.deadline).toBe(deadline);
+    expect(h.state.auction!.timeSkips).toEqual(['p0', 'p1']);
+  });
+
+  it('cuts straight to the final window once everyone agrees', () => {
+    const h = openAuction();
+    for (const id of ['p0', 'p1', 'p2']) h.dispatch({ type: 'SKIP_TIME', playerId: id, now: h.now });
+
+    expect(h.state.deadline).toBe(h.now + TIMINGS.HOT_WINDOW);
+    const applied = h.took('auction:timeSkip').filter((e) => e.type === 'auction:timeSkip' && e.applied);
+    expect(applied.length).toBe(1);
+  });
+
+  it('ignores offline players when counting votes', () => {
+    const h = openAuction();
+    h.dispatch({ type: 'PLAYER_CONNECTION', playerId: 'p2', connected: false, now: h.now });
+    h.dispatch({ type: 'SKIP_TIME', playerId: 'p0', now: h.now });
+    h.dispatch({ type: 'SKIP_TIME', playerId: 'p1', now: h.now });
+    expect(h.state.deadline).toBe(h.now + TIMINGS.HOT_WINDOW);
+  });
+
+  it('never extends the clock, only shortens it', () => {
+    const h = openAuction(['A', 'B']);
+    h.act('BID', 'p0', 'quick');
+    h.now = h.state.deadline! - 4_000;
+    const deadline = h.state.deadline;
+
+    h.dispatch({ type: 'SKIP_TIME', playerId: 'p0', now: h.now });
+    h.dispatch({ type: 'SKIP_TIME', playerId: 'p1', now: h.now });
+    expect(h.state.deadline).toBe(deadline);
+  });
+
+  it('voids the consensus when someone bids again', () => {
+    const h = openAuction(['A', 'B']);
+    h.dispatch({ type: 'SKIP_TIME', playerId: 'p0', now: h.now });
+    expect(h.state.auction!.timeSkips).toEqual(['p0']);
+
+    h.act('BID', 'p1', 'quick');
+    expect(h.state.auction!.timeSkips).toEqual([]);
+  });
+});
+
+describe('chat', () => {
+  it('records player messages and keeps a system log', () => {
+    const h = new Harness(['A', 'B']);
+    h.dispatch({ type: 'CHAT', playerId: 'p0', text: '  Bietet bloß nicht mit!  ', now: h.now });
+
+    const last = h.state.chat.at(-1)!;
+    expect(last.text).toBe('Bietet bloß nicht mit!');
+    expect(last.kind).toBe('player');
+    expect(last.name).toBe('A');
+
+    h.start();
+    h.tickUntil((s) => s.phase === 'auction_open');
+    h.act('BID', 'p0', 'quick');
+    h.act('SKIP', 'p1');
+    h.tickUntil((s) => s.phase === 'auto_assign');
+
+    // The engine writes the game log into the same feed.
+    expect(h.state.chat.some((m) => m.kind === 'system' && m.text.includes('ersteigert'))).toBe(true);
+  });
+
+  it('drops empty messages and truncates very long ones', () => {
+    const h = new Harness(['A', 'B']);
+    h.dispatch({ type: 'CHAT', playerId: 'p0', text: '   ', now: h.now });
+    expect(h.state.chat.length).toBe(0);
+
+    h.dispatch({ type: 'CHAT', playerId: 'p0', text: 'x'.repeat(500), now: h.now });
+    expect(h.state.chat.at(-1)!.text.length).toBe(RULES.CHAT_MAX_LENGTH);
+  });
+});
+
+describe('lobby settings', () => {
+  it('lets the host set the auction length and clamps it to the allowed range', () => {
+    const h = new Harness(['A', 'B']);
+    h.dispatch({ type: 'UPDATE_SETTINGS', playerId: 'p0', settings: { auctionSeconds: 300 }, now: h.now });
+    expect(h.state.settings.auctionSeconds).toBe(300);
+
+    h.dispatch({ type: 'UPDATE_SETTINGS', playerId: 'p0', settings: { auctionSeconds: 9999 }, now: h.now });
+    expect(h.state.settings.auctionSeconds).toBe(300);
+
+    h.dispatch({ type: 'UPDATE_SETTINGS', playerId: 'p0', settings: { auctionSeconds: 5 }, now: h.now });
+    expect(h.state.settings.auctionSeconds).toBe(60);
+  });
+
+  it('refuses changes from anyone but the host', () => {
+    const h = new Harness(['A', 'B']);
+    h.dispatch({ type: 'UPDATE_SETTINGS', playerId: 'p1', settings: { auctionSeconds: 300 }, now: h.now });
+    expect(h.state.settings.auctionSeconds).toBe(120);
+  });
+
+  it('applies the configured auction length to real auctions', () => {
+    const h = new Harness(['A', 'B']);
+    h.dispatch({ type: 'UPDATE_SETTINGS', playerId: 'p0', settings: { auctionSeconds: 300 }, now: h.now });
+    h.start();
+    h.tickUntil((s) => s.phase === 'auction_open');
+    expect(h.state.deadline).toBe(h.now + 300_000);
+  });
+});
+
 describe('completion guarantee', () => {
   it('locks players out of a category once their slot is filled', () => {
     const h = new Harness(['A', 'B', 'C']);
@@ -270,19 +414,34 @@ describe('completion guarantee', () => {
     expect(h.state.auction!.leaderId).toBeNull();
   });
 
-  it('switches to Last Pick instead of running a solo auction', () => {
+  it('deals exactly one character per player into every category', () => {
+    for (const count of [2, 3, 5, 6]) {
+      const h = new Harness(Array.from({ length: count }, (_, i) => `P${i}`), 31 + count);
+      h.start();
+      for (const cat of h.state.categoryOrder) expect(h.state.decks[cat].length).toBe(count);
+    }
+  });
+
+  it('hands the leftover character to the last player at the minimum price', () => {
     const h = new Harness(['A', 'B']);
     h.start();
     h.tickUntil((s) => s.phase === 'auction_open');
+    const firstCategory = h.state.categoryOrder[0];
+
     h.act('BID', 'p0', 'quick');
     h.act('SKIP', 'p1');
-    h.tickUntil((s) => s.phase === 'last_pick');
+    h.tickUntil((s) => s.phase === 'auto_assign');
 
-    expect(h.state.lastPick!.playerId).toBe('p1');
-    expect(h.state.lastPick!.options.length).toBe(3);
+    const assign = h.state.autoAssign!;
+    expect(assign.playerId).toBe('p1');
+    expect(h.player('p1').roster[firstCategory]?.characterId).toBe(assign.characterId);
+    // Paid exactly the starting price, never a bid above it.
+    expect(h.player('p1').roster[firstCategory]?.pricePaid).toBe(assign.price);
+    expect(assign.price).toBe(assign.fullPrice);
+    expect(h.player('p1').roster[firstCategory]?.via).toBe('auto');
   });
 
-  it('gives the last player their pick for free when they cannot afford it', () => {
+  it('hands it over for free when the last player is broke', () => {
     const h = new Harness(['A', 'B']);
     h.start();
     h.tickUntil((s) => s.phase === 'auction_open');
@@ -292,27 +451,29 @@ describe('completion guarantee', () => {
 
     h.act('BID', 'p0', 'quick');
     h.act('SKIP', 'p1');
-    h.tickUntil((s) => s.phase === 'last_pick');
+    h.tickUntil((s) => s.phase === 'auto_assign');
 
-    const choice = h.state.lastPick!.options[0];
-    h.dispatch({ type: 'LAST_PICK', playerId: 'p1', characterId: choice.characterId, now: h.now });
-
-    // They own the character, paid nothing, and are not in debt. (The balance
-    // is no longer 0 because the end-of-category injection has already landed.)
-    expect(h.player('p1').roster[h.state.categoryOrder[0]]?.characterId).toBe(choice.characterId);
+    expect(h.state.autoAssign!.price).toBe(0);
     expect(h.player('p1').roster[h.state.categoryOrder[0]]?.pricePaid).toBe(0);
-    expect(h.player('p1').money).toBeGreaterThanOrEqual(0);
+    expect(h.player('p1').money).toBe(0);
   });
 
-  it('auto-resolves Last Pick if the player never chooses', () => {
-    const h = new Harness(['A', 'B']);
+  it('never runs an auction for a single remaining player', () => {
+    const h = new Harness(['A', 'B', 'C']);
     h.start();
     h.tickUntil((s) => s.phase === 'auction_open');
+
     h.act('BID', 'p0', 'quick');
     h.act('SKIP', 'p1');
-    h.tickUntil((s) => s.phase === 'last_pick');
-    h.tick(); // timeout
-    expect(h.player('p1').roster[h.state.categoryOrder[0]]).toBeDefined();
+    h.act('SKIP', 'p2');
+    h.tickUntil((s) => s.phase === 'auction_open' || s.phase === 'auto_assign');
+
+    // Two players left -> still a real auction.
+    expect(h.state.phase).toBe('auction_open');
+    h.act('BID', 'p1', 'quick');
+    h.act('SKIP', 'p2');
+    h.tickUntil((s) => s.phase === 'auto_assign' || s.phase === 'category_end');
+    expect(h.state.phase).toBe('auto_assign');
   });
 
   it('falls back to free forced allocation rather than ever deadlocking', () => {
@@ -327,8 +488,6 @@ describe('completion guarantee', () => {
     while (h.state.categoryIndex === 0 && h.state.phase !== 'category_end' && guard++ < 500) {
       if (h.state.phase === 'auction_open') {
         for (const p of h.state.players) if (!p.roster[h.category]) h.act('SKIP', p.id);
-      } else if (h.state.phase === 'last_pick') {
-        h.tick();
       } else {
         h.tick();
       }
@@ -344,7 +503,7 @@ describe('completion guarantee', () => {
 });
 
 describe('economy', () => {
-  it('injects 10-50M per player after a category, on the 5M grid', () => {
+  it('injects a random amount within the configured ceiling', () => {
     const h = new Harness(['A', 'B']);
     h.start();
     h.tickUntil((s) => s.phase === 'category_end');
@@ -352,9 +511,22 @@ describe('economy', () => {
     expect(grants.length).toBe(2);
     for (const g of grants) {
       expect(g.amount).toBeGreaterThanOrEqual(RULES.INJECTION_MIN);
-      expect(g.amount).toBeLessThanOrEqual(RULES.INJECTION_MAX);
+      expect(g.amount).toBeLessThanOrEqual(h.state.settings.injectionMax);
       expect(g.amount % RULES.BID_STEP).toBe(0);
     }
+  });
+
+  it('pays everyone the same amount in fixed mode', () => {
+    const h = new Harness(['A', 'B', 'C']);
+    h.dispatch({
+      type: 'UPDATE_SETTINGS',
+      playerId: 'p0',
+      settings: { injectionMode: 'fixed', injectionMax: 40_000_000 },
+      now: h.now,
+    });
+    h.start();
+    h.tickUntil((s) => s.phase === 'category_end');
+    for (const g of h.state.lastInjection) expect(g.amount).toBe(40_000_000);
   });
 
   it('never lets a balance go negative across a full game', () => {

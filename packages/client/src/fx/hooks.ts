@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useGame } from '../store/game';
 
 /** Tweens a number so money and scores always count instead of snapping. */
 export function useCountUp(value: number, durationMs = 700): number {
@@ -31,20 +32,25 @@ export function useCountUp(value: number, durationMs = 700): number {
   return display;
 }
 
-/** Milliseconds remaining until an absolute server deadline. */
+/**
+ * Milliseconds remaining until an absolute server deadline, measured on the
+ * server's clock - a client whose clock is off would otherwise see a countdown
+ * that disagrees with everyone else's.
+ */
 export function useCountdown(deadline: number | null): number {
-  const [remaining, setRemaining] = useState(() => (deadline ? Math.max(0, deadline - Date.now()) : 0));
+  const offset = useGame((s) => s.clockOffset);
+  const [remaining, setRemaining] = useState(() => (deadline ? Math.max(0, deadline - Date.now() - offset) : 0));
 
   useEffect(() => {
     if (!deadline) {
       setRemaining(0);
       return;
     }
-    const update = () => setRemaining(Math.max(0, deadline - Date.now()));
+    const update = () => setRemaining(Math.max(0, deadline - (Date.now() + offset)));
     update();
     const id = setInterval(update, 100);
     return () => clearInterval(id);
-  }, [deadline]);
+  }, [deadline, offset]);
 
   return remaining;
 }

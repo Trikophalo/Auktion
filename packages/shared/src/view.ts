@@ -3,6 +3,8 @@ import type {
   CategoryId,
   CharacterId,
   CharacterPublic,
+  ChatMessage,
+  GameSettings,
   GameState,
   OwnedCharacter,
   Phase,
@@ -39,7 +41,8 @@ export interface ClientAuction {
   currentBid: number;
   leaderId: string | null;
   skipped: string[];
-  countdown: number | null;
+  /** Who has voted to cut the remaining time short. */
+  timeSkips: string[];
   bids: { playerId: string; amount: number; seq: number }[];
   winnerId?: string;
 }
@@ -48,6 +51,7 @@ export interface ClientState {
   roomCode: string;
   version: number;
   phase: Phase;
+  settings: GameSettings;
   you: string;
   players: ClientPlayer[];
   categoryOrder: CategoryId[];
@@ -55,7 +59,7 @@ export interface ClientState {
   /** How many characters are still undrawn in the active category. */
   deckSize: number;
   auction: ClientAuction | null;
-  lastPick: { playerId: string; options: { characterId: CharacterId; startingBid: number }[]; chosen?: CharacterId } | null;
+  autoAssign: { playerId: string; characterId: CharacterId; price: number; fullPrice: number } | null;
   forced: { awards: { playerId: string; characterId: CharacterId }[] } | null;
   trading: { offers: TradeOffer[]; readyPlayers: string[]; endsAt: number } | null;
   reveal: {
@@ -65,6 +69,7 @@ export interface ClientState {
     /** Scores of already-revealed columns only (so a rejoin mid-reveal works). */
     scores: Record<CharacterId, number>;
   } | null;
+  chat: ChatMessage[];
   recap: GameState['recap'];
   lastInjection: GameState['lastInjection'];
   deadline: number | null;
@@ -116,6 +121,7 @@ export function toClientState(state: GameState, playerId: string, now: number): 
     roomCode: state.roomCode,
     version: state.version,
     phase: state.phase,
+    settings: state.settings,
     you: playerId,
     players: state.players.map((p) => ({
       id: p.id,
@@ -140,21 +146,16 @@ export function toClientState(state: GameState, playerId: string, now: number): 
           currentBid: state.auction.currentBid,
           leaderId: state.auction.leaderId,
           skipped: state.auction.skipped,
-          countdown: state.auction.countdown,
+          timeSkips: state.auction.timeSkips,
           bids: state.auction.bids,
           winnerId: state.auction.winnerId,
         }
       : null,
-    lastPick: state.lastPick
-      ? {
-          playerId: state.lastPick.playerId,
-          options: state.lastPick.options.map((o) => ({ characterId: o.characterId, startingBid: o.startingBid })),
-          chosen: state.lastPick.chosen,
-        }
-      : null,
+    autoAssign: state.autoAssign,
     forced: state.forced,
     trading: state.trading,
     reveal: state.reveal ? { ...state.reveal, scores } : null,
+    chat: state.chat,
     recap: state.recap,
     lastInjection: state.lastInjection,
     deadline: state.deadline,

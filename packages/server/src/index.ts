@@ -149,9 +149,18 @@ io.on('connection', (socket) => {
     withPlayer((r, playerId) => r.dispatch({ type: 'SKIP', playerId, now: Date.now() })),
   );
 
-  socket.on('lastPick:choose', ({ characterId }) =>
-    withPlayer((r, playerId) => r.dispatch({ type: 'LAST_PICK', playerId, characterId, now: Date.now() })),
+  socket.on('auction:skipTime', () =>
+    withPlayer((r, playerId) => r.dispatch({ type: 'SKIP_TIME', playerId, now: Date.now() })),
   );
+
+  socket.on('lobby:settings', (settings) =>
+    withPlayer((r, playerId) => r.dispatch({ type: 'UPDATE_SETTINGS', playerId, settings, now: Date.now() })),
+  );
+
+  socket.on('chat:send', ({ text }) => {
+    if (rateLimited(socket)) return;
+    withPlayer((r, playerId) => r.dispatch({ type: 'CHAT', playerId, text: String(text ?? ''), now: Date.now() }));
+  });
 
   socket.on('trade:offer', (payload) =>
     withPlayer((r, playerId) =>

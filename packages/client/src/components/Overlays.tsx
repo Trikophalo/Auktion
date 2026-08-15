@@ -1,90 +1,113 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { money, moneyFull } from '@gla/shared';
+import { TIMINGS, money, moneyFull } from '@gla/shared';
 import { useGame } from '../store/game';
-import { net } from '../net/socket';
 import { useCountdown } from '../fx/hooks';
 import { CharacterArt } from './CharacterArt';
 
-/** The dramatic 5-4-3-2-1 takeover. */
+/**
+ * The dramatic final seconds.
+ *
+ * Deliberately `pointer-events: none` and offset from the bid bar: the whole
+ * point of the rule is that you can still bid while this is on screen, and a
+ * bid inside the hot window buys everyone another 10 seconds.
+ */
 export function Countdown() {
   const state = useGame((s) => s.state)!;
-  const value = state.auction?.countdown ?? null;
-  const active = state.phase === 'auction_countdown' && value !== null;
+  const remaining = useCountdown(state.deadline);
+  const seconds = Math.ceil(remaining / 1000);
+  const active = state.phase === 'auction_open' && remaining > 0 && seconds <= TIMINGS.CRITICAL_SECONDS;
 
   return (
     <AnimatePresence>
       {active && (
         <motion.div className="countdown-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <motion.div
-            key={value}
-            className={`countdown-number ${value! <= 2 ? 'critical' : ''}`}
+            key={seconds}
+            className={`countdown-number ${seconds <= 2 ? 'critical' : ''}`}
             initial={{ scale: 2.4, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.6, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 16 }}
           >
-            {value}
+            {seconds}
           </motion.div>
-          <div className="countdown-caption">Zum Ersten… zum Zweiten…</div>
+          <div className="countdown-caption">Jetzt noch bieten - jedes Gebot gibt 10 Sekunden zurück!</div>
         </motion.div>
       )}
     </AnimatePresence>
   );
 }
 
-/** Last eligible player picks one of three - never a solo auction. */
-export function LastPickOverlay() {
+/**
+ * The leftover character is handed to the last player standing. Since every
+ * category holds exactly one character per player, this is a guaranteed moment
+ * rather than a fallback - so it gets its own little ceremony.
+ */
+export function AutoAssignOverlay() {
   const state = useGame((s) => s.state)!;
-  const me = useGame((s) => s.me())!;
   const theme = useGame((s) => s.theme)!;
-  const characters = useGame((s) => s.characters);
-  const remaining = useCountdown(state.deadline);
+  const character = useGame((s) => s.character(state.autoAssign?.characterId));
 
-  if (state.phase !== 'last_pick' || !state.lastPick) return null;
+  if (state.phase !== 'auto_assign' || !state.autoAssign) return null;
 
-  const picker = state.players.find((p) => p.id === state.lastPick!.playerId)!;
-  const mine = picker.id === me.id;
+  const { playerId, price, fullPrice } = state.autoAssign;
+  const player = state.players.find((p) => p.id === playerId)!;
   const category = theme.categories.find((c) => c.id === state.categoryOrder[state.categoryIndex])!;
+  const mine = playerId === state.you;
+  const discounted = price < fullPrice;
 
   return (
-    <motion.div className="overlay lastpick" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <motion.div className="overlay-card" initial={{ y: 30, scale: 0.94 }} animate={{ y: 0, scale: 1 }}>
-        <h2 className="overlay-title">LETZTE WAHL</h2>
-        <p className="overlay-sub">
-          {mine ? 'Du bist der letzte Spieler ohne Charakter in dieser Kategorie.' : `${picker.name} muss sich entscheiden.`}
-          {' '}Bezahlt wird höchstens, was noch auf dem Konto ist.
-        </p>
+    <motion.div className="overlay assign" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <motion.div
+        className="assign-card"
+        initial={{ scale: 0.7, y: 40, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 220, damping: 18 }}
+      >
+        <motion.span
+          className="assign-kicker"
+          initial={{ y: -14, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.15 }}
+        >
+          Letzter Charakter der Kategorie
+        </motion.span>
 
-        <div className="lastpick-options">
-          {state.lastPick.options.map((option) => {
-            const character = characters.get(option.characterId);
-            const price = Math.min(option.startingBid, me.money);
-            return (
-              <motion.button
-                key={option.characterId}
-                className={`lastpick-card ${mine ? 'pickable' : ''}`}
-                whileHover={mine ? { y: -8, scale: 1.03 } : {}}
-                disabled={!mine}
-                onClick={() => net.lastPick(option.characterId)}
-              >
-                <CharacterArt character={character} accent={category.color} width={180} height={210} />
-                <span className="lp-name">{character?.name}</span>
-                <span className="lp-epithet">{character?.epithet}</span>
-                <span className="lp-price">
-                  {mine && price < option.startingBid ? (
-                    <>
-                      <s>{money(option.startingBid)}</s> → <b>{price === 0 ? 'GRATIS' : money(price)}</b>
-                    </>
-                  ) : (
-                    money(option.startingBid)
-                  )}
-                </span>
-              </motion.button>
-            );
-          })}
-        </div>
+        <motion.div
+          className="assign-art"
+          initial={{ rotate: -6, scale: 0.9 }}
+          animate={{ rotate: 0, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 200, damping: 14, delay: 0.2 }}
+        >
+          <CharacterArt character={character} accent={category.color} width={220} height={260} />
+        </motion.div>
 
-        <div className="overlay-timer">{Math.ceil(remaining / 1000)}s</div>
+        <motion.div className="assign-name" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45 }}>
+          <span className="an-name">{character?.name}</span>
+          <span className="an-epithet">{character?.epithet}</span>
+        </motion.div>
+
+        <motion.div
+          className="assign-to"
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 16, delay: 0.7 }}
+        >
+          <span className="at-arrow">↓</span>
+          <span className="at-player">
+            {player.avatar} {mine ? 'Du' : player.name}
+          </span>
+          <span className="at-price">
+            {price === 0 ? (
+              <b className="free">GRATIS</b>
+            ) : (
+              <>
+                {discounted && <s>{money(fullPrice)}</s>} <b>{moneyFull(price)}</b>
+                <em> Mindestpreis</em>
+              </>
+            )}
+          </span>
+        </motion.div>
       </motion.div>
     </motion.div>
   );

@@ -7,20 +7,26 @@ import { characterOf } from './helpers.js';
  * Cash injection after every category.
  *
  * This is the anti-elimination valve: a player who overspent early is poorer
- * than everyone else, but never permanently locked out of bidding.
+ * than everyone else, but never permanently locked out of bidding. The host
+ * picks the ceiling and whether it is rolled per player or paid flat.
  */
 export function applyInjection(state: GameState): {
   state: GameState;
   grants: { playerId: string; amount: number }[];
 } {
+  const { injectionMax, injectionMode } = state.settings;
+  const max = Math.max(RULES.INJECTION_MIN, injectionMax);
   let rng = state.rng;
-  const steps = (RULES.INJECTION_MAX - RULES.INJECTION_MIN) / RULES.BID_STEP;
   const grants: { playerId: string; amount: number }[] = [];
 
   const players = state.players.map((p) => {
-    const [step, next] = nextInt(rng, 0, steps);
-    rng = next;
-    const amount = RULES.INJECTION_MIN + step * RULES.BID_STEP;
+    let amount = max;
+    if (injectionMode === 'random') {
+      const steps = Math.max(0, (max - RULES.INJECTION_MIN) / RULES.BID_STEP);
+      const [step, next] = nextInt(rng, 0, steps);
+      rng = next;
+      amount = RULES.INJECTION_MIN + step * RULES.BID_STEP;
+    }
     grants.push({ playerId: p.id, amount });
     return { ...p, money: p.money + amount };
   });

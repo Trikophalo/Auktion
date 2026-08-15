@@ -50,6 +50,21 @@ export interface ThemePack {
 }
 
 // ---------------------------------------------------------------------------
+// Room settings (chosen by the host in the lobby)
+// ---------------------------------------------------------------------------
+
+export type InjectionMode = 'random' | 'fixed';
+
+export interface GameSettings {
+  /** Length of a single auction, in seconds (60-300). */
+  auctionSeconds: number;
+  /** Upper bound of the cash injection paid after every category. */
+  injectionMax: number;
+  /** random = each player rolls up to the max, fixed = everyone gets the max. */
+  injectionMode: InjectionMode;
+}
+
+// ---------------------------------------------------------------------------
 // Game state
 // ---------------------------------------------------------------------------
 
@@ -58,10 +73,10 @@ export type Phase =
   | 'category_intro'
   | 'auction_reveal'
   | 'auction_open'
-  | 'auction_countdown'
   | 'auction_sold'
   | 'auction_passed'
-  | 'last_pick'
+  /** The last remaining player is handed the last remaining character. */
+  | 'auto_assign'
   | 'forced_allocation'
   | 'category_end'
   | 'trading'
@@ -73,7 +88,7 @@ export interface OwnedCharacter {
   /** What the player actually paid (0 for free allocations). */
   pricePaid: number;
   /** How it was obtained - drives the end-of-game awards. */
-  via: 'auction' | 'last_pick' | 'forced' | 'trade';
+  via: 'auction' | 'auto' | 'forced' | 'trade';
 }
 
 export interface Player {
@@ -119,18 +134,20 @@ export interface AuctionState {
   leaderId: string | null;
   /** Players who declared SKIP for this character. */
   skipped: string[];
+  /** Players who voted to cut the remaining time short. */
+  timeSkips: string[];
   bids: BidRecord[];
-  /** 5..0 while the final countdown runs, else null. */
-  countdown: number | null;
   /** Winner, once resolved. */
   winnerId?: string;
   winningBid?: number;
 }
 
-export interface LastPickState {
+export interface AutoAssignState {
   playerId: string;
-  options: DeckEntry[];
-  chosen?: CharacterId;
+  characterId: CharacterId;
+  price: number;
+  /** The undiscounted price, when the character had been passed over. */
+  fullPrice: number;
 }
 
 export interface ForcedAllocationState {
@@ -176,22 +193,35 @@ export interface CategoryRecapEntry {
   via: OwnedCharacter['via'];
 }
 
+export interface ChatMessage {
+  id: number;
+  /** null for system lines. */
+  playerId: string | null;
+  name: string;
+  avatar: string;
+  text: string;
+  at: number;
+  kind: 'player' | 'system';
+}
+
 export interface GameState {
   roomCode: string;
   themeId: string;
   phase: Phase;
+  settings: GameSettings;
   rng: RngState;
   players: Player[];
   /** Shuffled per game. */
   categoryOrder: CategoryId[];
   categoryIndex: number;
-  /** Remaining, undrawn characters per category. */
+  /** Remaining, undrawn characters per category - exactly one per player. */
   decks: Record<CategoryId, DeckEntry[]>;
   auction: AuctionState | null;
-  lastPick: LastPickState | null;
+  autoAssign: AutoAssignState | null;
   forced: ForcedAllocationState | null;
   trading: TradingState | null;
   reveal: RevealState | null;
+  chat: ChatMessage[];
   /** Consecutive auctions in this category that nobody bid on. */
   consecutivePasses: number;
   /** Recap of the category that just ended. */
@@ -218,10 +248,13 @@ export type Action =
   | { type: 'PLAYER_LEAVE'; playerId: string; now: number }
   | { type: 'PLAYER_CONNECTION'; playerId: string; connected: boolean; now: number }
   | { type: 'SET_READY'; playerId: string; ready: boolean; now: number }
+  | { type: 'UPDATE_SETTINGS'; playerId: string; settings: Partial<GameSettings>; now: number }
   | { type: 'START_GAME'; playerId: string; now: number }
   | { type: 'BID'; playerId: string; amount: number | 'quick'; now: number }
   | { type: 'SKIP'; playerId: string; now: number }
-  | { type: 'LAST_PICK'; playerId: string; characterId: CharacterId; now: number }
+  /** Vote to cut the remaining auction time down to the final window. */
+  | { type: 'SKIP_TIME'; playerId: string; now: number }
+  | { type: 'CHAT'; playerId: string; text: string; now: number }
   | { type: 'TRADE_OFFER'; playerId: string; toId: string; giveCharacterId: CharacterId; wantCharacterId: CharacterId; money: number; counterOf?: string; now: number }
   | { type: 'TRADE_RESPOND'; playerId: string; offerId: string; response: 'accept' | 'reject' | 'cancel'; now: number }
   | { type: 'TRADE_READY'; playerId: string; now: number }
@@ -236,15 +269,13 @@ export type Action =
 export type GameEvent =
   | { type: 'category:intro'; categoryId: CategoryId; index: number; deckSize: number }
   | { type: 'auction:reveal'; character: CharacterPublic; startingBid: number; originalBid: number; timesPassed: number }
-  | { type: 'auction:open' }
-  | { type: 'auction:bid'; playerId: string; amount: number; seq: number }
+  | { type: 'auction:open'; endsAt: number }
+  | { type: 'auction:bid'; playerId: string; amount: number; seq: number; endsAt: number; extended: boolean }
   | { type: 'auction:skip'; playerId: string }
-  | { type: 'auction:countdown'; value: number }
-  | { type: 'auction:countdownCancelled' }
+  | { type: 'auction:timeSkip'; playerId: string; votes: number; needed: number; applied: boolean }
   | { type: 'auction:sold'; playerId: string; amount: number; characterId: CharacterId; categoryId: CategoryId }
   | { type: 'auction:passed'; characterId: CharacterId; newStartingBid: number }
-  | { type: 'lastPick:start'; playerId: string; options: { character: CharacterPublic; startingBid: number }[] }
-  | { type: 'lastPick:done'; playerId: string; characterId: CharacterId; pricePaid: number }
+  | { type: 'auction:autoAssign'; playerId: string; characterId: CharacterId; price: number; fullPrice: number }
   | { type: 'forced:allocate'; awards: { playerId: string; characterId: CharacterId }[] }
   | { type: 'category:end'; recap: CategoryRecapEntry[] }
   | { type: 'economy:injection'; grants: { playerId: string; amount: number }[] }
@@ -252,6 +283,8 @@ export type GameEvent =
   | { type: 'trading:offer'; offer: TradeOffer }
   | { type: 'trading:update'; offer: TradeOffer }
   | { type: 'trading:end' }
+  | { type: 'chat:message'; message: ChatMessage }
+  | { type: 'settings:update'; settings: GameSettings }
   | { type: 'reveal:start' }
   | { type: 'reveal:column'; columnIndex: number; categoryId: CategoryId; cells: { playerId: string; characterId: CharacterId; score: number; pricePaid: number }[]; totals: Record<string, number> }
   | { type: 'game:over'; winnerId: string; totals: Record<string, number>; awards: Award[] }

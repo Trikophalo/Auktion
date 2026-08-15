@@ -43,11 +43,18 @@ friends, and start.
 - The board is **10 columns** (character categories) × one row per player. You need
   exactly one character per category.
 - Characters are auctioned one at a time: a dramatic pixelated reveal, live bidding in
-  **5M** steps, a 10-second soft timer, then a **5-4-3-2-1** countdown.
+  **5M** steps, and an auction clock the host sets (**1–5 minutes**). A bid in the final
+  10 seconds puts 10 seconds back on the clock, so nothing can be sniped unanswerably —
+  and you can still bid while the big **5-4-3-2-1** is on screen.
+- Bored of waiting? Every player has a **"Zeit überspringen"** button; once everyone has
+  pressed it, the clock jumps straight to the last 10 seconds.
 - Every character has a public **starting bid (40M–150M)** and a **hidden score (0–100)**.
   Expensive ≠ good. Every category hides sleepers and traps (Spandam scores **3**).
-- After each category everyone gets **10–50M**; after categories 3, 6 and 9 a **market
-  phase** opens for same-category swaps plus money.
+- Each category holds **exactly as many characters as there are players** — so the last
+  player left is simply handed the leftover at its minimum price (free if broke).
+- After each category everyone gets a **cash injection** (host sets the ceiling, random or
+  flat); after categories 3, 6 and 9 a **market phase** opens for same-category swaps.
+- **Chat** in the lobby and in-game, with the game log woven into the same feed.
 - When every board is full, the **final reveal** flips the scores column by column, counts
   totals up, and reorders the leaderboard live. Highest total wins.
 
@@ -66,33 +73,38 @@ friends, and start.
 
 | Problem | Solution |
 | --- | --- |
-| Guarantee everyone ends with exactly 10 characters | Players who filled a category can't bid in it any more; when only one player still needs it they get **Last Pick** (1 of 3, paying `min(price, balance)` — free if broke); a **forced free allocation** backstop makes deadlock impossible |
-| Broke players locked out | Skipped characters return **25% cheaper** (floor 10M), plus 10–50M per category, plus free-if-broke picks. Simulation: 7.6% of players end at 0 Berry — *all* still complete their board |
+| Guarantee everyone ends with exactly 10 characters | Each category deals exactly one character per player; players who filled a category can't bid in it any more; the last player left is **handed the leftover** at `min(price, balance)` — free if broke; a **forced free allocation** backstops any deadlock |
+| Broke players locked out | Skipped characters return **25% cheaper** (floor 10M), plus a cash injection per category, plus free-if-broke hand-overs — every board completes regardless of balance |
 | Everyone skips | Auction ends instantly, character re-enters the deck at a random position, cheaper |
 | Simultaneous bids | Single per-room action queue; quick-bid is a **relative** "+5M" intent, so it can't lose a race |
 | Trades breaking the board | Only same-category swaps exist, so the one-per-category invariant is structural |
 | Score cheating | The client bundle contains **zero** character data — scores live only on the server and are sent at the reveal |
-| Same game every time | Category order and every category's deck are shuffled from a per-game seed |
+| Same game every time | Category order and every category's deck are drawn from a per-game seed — with only N of 12–18 characters used per category, the pool differs every match |
+| Endless 5-minute clocks | A unanimous **skip-time vote** cuts straight to the final 10 seconds; any new bid voids the consensus |
 
 ## Verification
 
 ```bash
-npm test                       # 46 engine tests
+npm test                       # 60 engine tests
 npm run typecheck
-npm run simulate -- 400 4      # balance report
+npm run simulate -- 500 4      # balance report
 npx tsx tools/smoke.ts         # 3 clients play a full game over websockets
 npx tsx tools/playthrough.ts   # 2 real browsers play to the winner, with screenshots
+npx tsx tools/verify-features.ts  # browser checks for settings, chat, timer, hand-over
 ```
 
 Current results:
 
-- **46/46 engine tests pass** — including full games for 2, 3, 4, 5 and 6 players, a game
-  where every player always skips, forced allocation, and the redaction guarantee.
-- **Balance (400 games × 4 players):** average winning bid **133 Mio.**, forced allocation
-  **0.0%**, median leftover cash **110 Mio.**, win rate by strategy aggressive **34.5%** /
-  balanced **32.0%** / patient **30.3%** — no dominant strategy.
+- **60/60 engine tests pass** — full games for 2–6 players, the extending hot window, the
+  skip-time vote, automatic hand-over (incl. free-if-broke), chat, settings clamping,
+  forced allocation, and the redaction guarantee.
+- **Balance (500 games × 4 players, value-aware bots):** forced allocation **0.0%**, win
+  rate by strategy balanced **34.4%** / patient **26.4%** / bargain **25.6%** / aggressive
+  **13.6%** — no dominant strategy, and overpaying is punished.
 - **End-to-end:** a full 10-category game over real websockets finishes with every player
-  at 10/10 characters and no score leaked before the reveal.
+  at 10/10 characters and no score leaked before the reveal; `tools/verify-features.ts`
+  drives two browsers through the settings, chat, skip-time vote, countdown bidding and
+  hand-over ceremony with all checks green.
 
 ## Project layout
 
@@ -101,7 +113,7 @@ packages/
   shared/    # pure TypeScript: game engine, theme data, protocol (no deps)
   server/    # Node + socket.io, one authoritative GameRoom per room
   client/    # React + Vite, canvas art, framer-motion, WebAudio sfx
-tools/       # simulate.ts, smoke.ts, playthrough.ts, screenshots.ts
+tools/       # simulate.ts, smoke.ts, playthrough.ts, verify-features.ts
 docs/        # design, characters, architecture, UI, roadmap, implementation
 ```
 
