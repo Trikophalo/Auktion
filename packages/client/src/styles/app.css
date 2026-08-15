@@ -140,13 +140,22 @@ button { font-family: inherit; }
 
 /* ------------------------------------------------------------------ lobby */
 
+/*
+ * Centering a scroll container with `justify-content: center` clips the overflow
+ * at the TOP and makes it unreachable - you can never scroll back up to it.
+ * Auto margins on the outer children centre the content when it fits and
+ * collapse to 0 when it does not, so the top always stays scrollable.
+ */
 .lobby {
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 26px;
   padding: 24px;
   overflow-y: auto;
 }
+
+.lobby > :first-child { margin-top: auto; }
+.lobby > :last-child { margin-bottom: auto; }
 
 .title-block { text-align: center; }
 
@@ -177,7 +186,33 @@ button { font-family: inherit; }
   backdrop-filter: blur(8px);
 }
 
-.lobby-card.wide { width: min(820px, 100%); }
+.lobby-card.wide { width: min(1000px, 100%); }
+
+/*
+ * On a desktop the room view has a lot to show (players, settings, chat, rules).
+ * Two columns keep the room code - the one thing everyone needs to read out
+ * loud - visible without scrolling.
+ */
+@media (min-width: 900px) {
+  .lobby-card.wide {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .lobby-card.wide > .room-head,
+  .lobby-card.wide > .player-slots,
+  .lobby-card.wide > .lobby-actions {
+    grid-column: 1 / -1;
+  }
+
+  .lobby-card.wide > .chat.panel {
+    grid-column: 2;
+    grid-row: span 2;
+    height: 100%;
+    min-height: 250px;
+  }
+}
 
 .field { display: flex; flex-direction: column; gap: 8px; }
 .field > span { font-size: 12px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--ink-dim); font-weight: 800; }
@@ -263,7 +298,20 @@ button { font-family: inherit; }
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.rules-digest h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gold); }
+.rules-digest > summary {
+  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 800;
+  list-style: none;
+}
+
+.rules-digest > summary::marker, .rules-digest > summary::-webkit-details-marker { display: none; }
+.rules-digest > summary::before { content: '▸'; display: inline-block; margin-right: 7px; }
+.rules-digest[open] > summary::before { content: '▾'; }
+.rules-digest[open] > summary { margin-bottom: 10px; }
 .rules-digest ol { margin: 0; padding-left: 20px; color: var(--ink-dim); font-size: 13.5px; line-height: 1.75; }
 .rules-digest b { color: var(--ink); }
 

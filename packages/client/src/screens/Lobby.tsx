@@ -90,8 +90,8 @@ export function Lobby() {
 
           <Chat variant="panel" />
 
-          <div className="rules-digest">
-            <h3>So wird gespielt</h3>
+          <details className="rules-digest">
+            <summary>So wird gespielt</summary>
             <ol>
               <li>Jeder startet mit <b>1 Mrd. Berry</b> und braucht am Ende genau einen Charakter aus <b>10 Kategorien</b>.</li>
               <li>Charaktere werden einzeln versteigert. Mindestschritt: <b>5 Mio.</b> In den letzten 10 Sekunden setzt jedes Gebot die Uhr wieder auf 10s.</li>
@@ -100,7 +100,7 @@ export function Lobby() {
               <li>Nach jeder Kategorie gibt es eine <b>Geldspritze</b>. Nach Kategorie 3, 6 und 9 wird <b>gehandelt</b>.</li>
               <li>Am Ende zählt nur die Summe der geheimen Punkte. Das beste Team gewinnt.</li>
             </ol>
-          </div>
+          </details>
 
           <div className="lobby-actions">
             {me.isHost ? (
